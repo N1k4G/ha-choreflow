@@ -80,6 +80,7 @@ def build_urgency_pool(
         for inst in instances
         if inst.status == TaskStatus.OPEN
         and (inst.due_date is None or inst.due_date <= on_date)
+        and (inst.snooze_until is None or inst.snooze_until <= on_date)
     ]
     pool.sort(key=lambda inst: (-score(inst, on_date, recent), inst.id))
     return pool

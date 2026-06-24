@@ -102,6 +102,7 @@ paginated lists.
 | `choreflow.sync_todo` | Run a to-do synchronisation now. |
 | `choreflow.rebuild_calendar_tasks` | Reconcile calendar-based tasks now. |
 | `choreflow.export_log` | Export the event log to `choreflow_exports/` (JSON/CSV). |
+| `choreflow.get_task` | Return full detail for a single task (used by the edit dialog). |
 | `choreflow.get_tasks` | Return filtered, paginated task data for dashboards. |
 | `choreflow.get_history` | Return filtered, paginated log history. |
 

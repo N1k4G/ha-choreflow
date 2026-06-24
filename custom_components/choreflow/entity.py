@@ -20,5 +20,5 @@ def build_device_info(entry: ConfigEntry) -> DeviceInfo:
 
 
 def person_slug(person_entity: str) -> str:
-    """``person.niklas`` → ``niklas`` for stable unique ids."""
+    """``person.username`` → ``username`` for stable unique ids."""
     return person_entity.split(".", 1)[-1]

@@ -29,6 +29,7 @@ from homeassistant.helpers.storage import Store
 from .const import (
     EVENT_TASK_COMPLETED,
     EVENT_TASK_COMPLETED_FROM_TODO,
+    EVENT_TASK_REOPENED,
     EVENT_TASK_SNOOZED,
     STORAGE_KEY_TEMPLATE,
     STORAGE_MINOR_VERSION,
@@ -51,6 +52,16 @@ _T = TypeVar("_T")
 _COMPLETED_EVENT_TYPES: tuple[str, ...] = (
     EVENT_TASK_COMPLETED,
     EVENT_TASK_COMPLETED_FROM_TODO,
+)
+
+# Excludes completions that were subsequently undone via reopen_task (§Feature 2).
+# Uses table alias "c" for the outer completion row.
+_NO_REOPEN_COND: str = (
+    "NOT EXISTS ("
+    "SELECT 1 FROM log_events r"
+    " WHERE r.task_id = c.task_id"
+    f" AND r.event_type = '{EVENT_TASK_REOPENED}'"
+    " AND r.timestamp > c.timestamp)"
 )
 
 
@@ -267,13 +278,14 @@ class LogDatabase:
         if column not in _GROUP_COLUMNS:
             raise ValueError(f"Unsupported group column: {column}")
         sql = (
-            f"SELECT {column} AS k, COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            f"GROUP BY {column}"
+            f"SELECT c.{column} AS k, COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            f"AND {_NO_REOPEN_COND} "
+            f"GROUP BY c.{column}"
         )
         with self._lock:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
-        return {row["k"]: row["c"] for row in rows if row["k"] is not None}
+        return {row["k"]: row["cnt"] for row in rows if row["k"] is not None}
 
     def completed_count_by_person(self) -> dict[str, int]:
         return self._completed_group_count("person_entity")
@@ -287,14 +299,15 @@ class LogDatabase:
     def completed_count_by_task(self) -> dict[str, int]:
         """Completions grouped by task (rule id, falling back to instance id)."""
         sql = (
-            "SELECT COALESCE(task_rule_id, task_id) AS k, COUNT(*) AS c "
-            "FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "SELECT COALESCE(c.task_rule_id, c.task_id) AS k, COUNT(*) AS cnt "
+            "FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            f"AND {_NO_REOPEN_COND} "
             "GROUP BY k"
         )
         with self._lock:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
-        return {row["k"]: row["c"] for row in rows if row["k"] is not None}
+        return {row["k"]: row["cnt"] for row in rows if row["k"] is not None}
 
     def snoozed_count(self) -> int:
         sql = "SELECT COUNT(*) AS c FROM log_events WHERE event_type = ?"
@@ -315,92 +328,99 @@ class LogDatabase:
     def completed_count_by_month(self) -> dict[str, int]:
         """Completions keyed by ``YYYY-MM`` (derived from the ISO timestamp)."""
         sql = (
-            "SELECT substr(timestamp, 1, 7) AS k, COUNT(*) AS c "
-            "FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "SELECT substr(c.timestamp, 1, 7) AS k, COUNT(*) AS cnt "
+            "FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            f"AND {_NO_REOPEN_COND} "
             "GROUP BY k ORDER BY k"
         )
         with self._lock:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
-        return {row["k"]: row["c"] for row in rows}
+        return {row["k"]: row["cnt"] for row in rows}
 
     def completed_count_by_year(self) -> dict[str, int]:
         sql = (
-            "SELECT substr(timestamp, 1, 4) AS k, COUNT(*) AS c "
-            "FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "SELECT substr(c.timestamp, 1, 4) AS k, COUNT(*) AS cnt "
+            "FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            f"AND {_NO_REOPEN_COND} "
             "GROUP BY k ORDER BY k"
         )
         with self._lock:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
-        return {row["k"]: row["c"] for row in rows}
+        return {row["k"]: row["cnt"] for row in rows}
 
     def high_completed_on_time_count(self) -> int:
         """High tasks completed without being overdue (§3.4)."""
         sql = (
-            "SELECT COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            "AND importance = 'high' "
-            "AND (overdue_days_at_completion IS NULL "
-            "     OR overdue_days_at_completion <= 0)"
+            "SELECT COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND c.importance = 'high' "
+            "AND (c.overdue_days_at_completion IS NULL "
+            "     OR c.overdue_days_at_completion <= 0) "
+            f"AND {_NO_REOPEN_COND}"
         )
         with self._lock:
             row = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchone()
-        return int(row["c"])
+        return int(row["cnt"])
 
     def overdue_at_completion_count(self) -> int:
         """Completions that happened while overdue (§3.4)."""
         sql = (
-            "SELECT COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            "AND overdue_days_at_completion > 0"
+            "SELECT COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND c.overdue_days_at_completion > 0 "
+            f"AND {_NO_REOPEN_COND}"
         )
         with self._lock:
             row = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchone()
-        return int(row["c"])
+        return int(row["cnt"])
 
     def completion_source_distribution(self) -> dict[str, int]:
         sql = (
-            "SELECT completion_source AS k, COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            "GROUP BY completion_source"
+            "SELECT c.completion_source AS k, COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            f"AND {_NO_REOPEN_COND} "
+            "GROUP BY c.completion_source"
         )
         with self._lock:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
-        return {row["k"]: row["c"] for row in rows if row["k"] is not None}
+        return {row["k"]: row["cnt"] for row in rows if row["k"] is not None}
 
     def completed_count_in_range(self, start_date: str, end_date: str) -> int:
         """Completions whose date part falls within ``[start_date, end_date]``.
 
         Dates are ``YYYY-MM-DD`` and compared on the timestamp's date prefix,
-        which is timezone-offset independent.
+        which is timezone-offset independent. Reopened completions are excluded.
         """
         sql = (
-            "SELECT COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            "AND substr(timestamp, 1, 10) BETWEEN ? AND ?"
+            "SELECT COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND substr(c.timestamp, 1, 10) BETWEEN ? AND ? "
+            f"AND {_NO_REOPEN_COND}"
         )
         with self._lock:
             row = self._c.execute(
                 sql, (*_COMPLETED_EVENT_TYPES, start_date, end_date)
             ).fetchone()
-        return int(row["c"])
+        return int(row["cnt"])
 
     def completed_count_by_person_in_range(
         self, start_date: str, end_date: str
     ) -> dict[str, int]:
         """Per-person completions within ``[start_date, end_date]`` (date part)."""
         sql = (
-            "SELECT person_entity AS k, COUNT(*) AS c FROM log_events "
-            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
-            "AND substr(timestamp, 1, 10) BETWEEN ? AND ? "
-            "GROUP BY person_entity"
+            "SELECT c.person_entity AS k, COUNT(*) AS cnt FROM log_events c "
+            f"WHERE c.event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND substr(c.timestamp, 1, 10) BETWEEN ? AND ? "
+            f"AND {_NO_REOPEN_COND} "
+            "GROUP BY c.person_entity"
         )
         with self._lock:
             rows = self._c.execute(
                 sql, (*_COMPLETED_EVENT_TYPES, start_date, end_date)
             ).fetchall()
-        return {row["k"]: row["c"] for row in rows if row["k"] is not None}
+        return {row["k"]: row["cnt"] for row in rows if row["k"] is not None}
 
     def fetch_all(self) -> list[dict[str, Any]]:
         """Return every log event, oldest first."""

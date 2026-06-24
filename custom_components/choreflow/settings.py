@@ -20,6 +20,7 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_SETTINGS,
     CONF_PRESENCE_REQUIRED,
+    CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION,
     CONF_TODO_SYNC,
     CONF_WEEKDAY_PUSH_ENABLED,
     CONF_WEEKDAY_START_TIME,
@@ -29,6 +30,7 @@ from .const import (
     DEFAULT_MAX_TASKS_PER_PERSON_PER_DAY,
     DEFAULT_NAME,
     DEFAULT_PRESENCE_REQUIRED,
+    DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION,
     DEFAULT_WEEKDAY_PUSH_ENABLED,
     DEFAULT_WEEKDAY_START_TIME,
     DEFAULT_WEEKEND_PUSH_ENABLED,
@@ -53,6 +55,7 @@ class ChoreFlowSettings:
     person_settings: dict[str, PersonSettings]
     schedule: ScheduleConfig
     max_tasks_per_person_per_day: int
+    skip_push_after_daily_completion: bool = DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION
     todo: dict[str, Any] = field(default_factory=dict)
     calendar_sources: list[dict[str, Any]] = field(default_factory=list)
 
@@ -93,6 +96,10 @@ class ChoreFlowSettings:
             max_tasks_per_person_per_day=merged.get(
                 CONF_MAX_TASKS_PER_PERSON_PER_DAY,
                 DEFAULT_MAX_TASKS_PER_PERSON_PER_DAY,
+            ),
+            skip_push_after_daily_completion=merged.get(
+                CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION,
+                DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION,
             ),
             todo=dict(merged.get(CONF_TODO_SYNC, {})),
             calendar_sources=list(merged.get(CONF_CALENDAR_SOURCES, [])),

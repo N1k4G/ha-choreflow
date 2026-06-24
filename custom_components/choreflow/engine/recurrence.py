@@ -37,6 +37,19 @@ def _has_instance_on(rule_id: str, on_date: date, existing: list[TaskInstance]) 
     )
 
 
+def _has_open_instance(rule_id: str, existing: list[TaskInstance]) -> bool:
+    """True if the rule already has an open (not yet completed) instance.
+
+    Prevents pile-up for long-ignored every_n_days rules: at most one open
+    instance per rule is generated, so the dashboard doesn't fill with stacked
+    copies of the same recurring chore.
+    """
+    return any(
+        inst.rule_id == rule_id and inst.status == TaskStatus.OPEN
+        for inst in existing
+    )
+
+
 def _is_due(rule: TaskRule, on_date: date, existing: list[TaskInstance]) -> bool:
     if rule.recurrence_type == RecurrenceType.ONCE:
         return False  # one-off rules never recur automatically
@@ -53,7 +66,10 @@ def _is_due(rule: TaskRule, on_date: date, existing: list[TaskInstance]) -> bool
             _last_completion_date(rule.id, existing) or rule.created_date or on_date
         )
         delta = (on_date - anchor).days
-        return delta >= 0 and delta % interval == 0
+        # Also catches overdue rules: if at least one full interval has elapsed
+        # and no open instance exists (guarded by _has_open_instance), generate
+        # the missed instance today rather than waiting for the next exact multiple.
+        return delta >= 0 and (delta % interval == 0 or delta >= interval)
 
     return False
 
@@ -76,6 +92,8 @@ def due_instances_for(
         if not _is_due(rule, on_date, existing_instances):
             continue
         if _has_instance_on(rule.id, on_date, existing_instances):
+            continue
+        if _has_open_instance(rule.id, existing_instances):
             continue
         result.append(
             TaskInstance(

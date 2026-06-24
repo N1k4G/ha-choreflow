@@ -18,9 +18,12 @@ export interface CurrentOpenTask {
   importance: Importance;
   estimated_duration_minutes: number | null;
   due_date: string | null; // YYYY-MM-DD
+  snooze_until: string | null; // YYYY-MM-DD; null means not snoozed
 }
 
-/** Full task as returned by the `choreflow.get_tasks` response service. */
+export type RecurrenceType = "every_n_days" | "weekdays" | "once";
+
+/** Full task as returned by `choreflow.get_task` / `choreflow.get_tasks`. */
 export interface ChoreFlowTask extends CurrentOpenTask {
   task_rule_id: string | null;
   description?: string | null;
@@ -35,6 +38,25 @@ export interface ChoreFlowTask extends CurrentOpenTask {
   completed_at: string | null;
   completed_by: string | null;
   completion_source: string | null;
+  recurrence_type: RecurrenceType | null;
+  recurrence_interval: number | null;
+  recurrence_weekdays: number[] | null;
+}
+
+/** Mutable form state used in the task edit dialog. */
+export interface EditForm {
+  task_id: string;
+  task_rule_id: string | null;
+  title: string;
+  description: string;
+  room: string;
+  category: string;
+  importance: Importance;
+  due_date: string;
+  estimated_duration_minutes: string;
+  recurrence_type: RecurrenceType;
+  recurrence_interval: string;
+  recurrence_weekdays: number[];
 }
 
 /** Generic paged envelope returned by both query services. */
@@ -53,6 +75,7 @@ export type ChoreFlowEventType =
   | "task_deleted"
   | "task_notified"
   | "task_completed"
+  | "task_reopened"
   | "task_snoozed"
   | "task_missed_no_presence"
   | "task_expired"

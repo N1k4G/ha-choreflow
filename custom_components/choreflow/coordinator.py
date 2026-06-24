@@ -35,6 +35,7 @@ from .const import (
     EVENT_TASK_EXPIRED,
     EVENT_TASK_MISSED_NO_PRESENCE,
     EVENT_TASK_NOTIFIED,
+    EVENT_TASK_REOPENED,
     EVENT_TASK_SNOOZED,
     EVENT_TASK_SYNCED_FROM_TODO,
     EVENT_TASK_UPDATED,
@@ -58,7 +59,9 @@ from .models import (
     Importance,
     LogEvent,
     PushChainState,
+    RecurrenceType,
     TaskInstance,
+    TaskRule,
     TaskSource,
     TaskStatus,
     VisibilityMode,
@@ -76,6 +79,10 @@ _UPDATE_INTERVAL = timedelta(minutes=10)
 # Completed instances older than this are pruned at the daily start to keep the
 # state store bounded while preserving the recurrence anchor (§4.2).
 _COMPLETED_RETENTION_DAYS = 120
+# How many days ahead to pre-generate the next occurrence of a recurring rule.
+# Covers the longest standard interval (yearly) so a completed task's successor
+# always appears in the list immediately.
+_LOOKAHEAD_DAYS = 366
 
 
 @dataclass
@@ -108,9 +115,11 @@ def _visible_to(instance: TaskInstance, person: str) -> bool:
     return True
 
 
-def task_payload(instance: TaskInstance) -> dict[str, Any]:
+def task_payload(
+    instance: TaskInstance, rule: TaskRule | None = None
+) -> dict[str, Any]:
     """Return the versioned card-facing representation of a task."""
-    return {
+    payload: dict[str, Any] = {
         "task_id": instance.id,
         "task_rule_id": instance.rule_id,
         "title": instance.title,
@@ -133,7 +142,15 @@ def task_payload(instance: TaskInstance) -> dict[str, Any]:
         ),
         "completed_by": instance.completed_by,
         "completion_source": instance.completion_source,
+        "recurrence_type": rule.recurrence_type.value if rule else None,
+        "recurrence_interval": rule.recurrence_interval if rule else None,
+        "recurrence_weekdays": (
+            list(rule.recurrence_weekdays)
+            if rule and rule.recurrence_weekdays
+            else None
+        ),
     }
+    return payload
 
 
 def task_preview_payload(instance: TaskInstance) -> dict[str, Any]:
@@ -146,20 +163,29 @@ def task_preview_payload(instance: TaskInstance) -> dict[str, Any]:
         "importance": instance.importance.value,
         "estimated_duration_minutes": instance.estimated_duration_minutes,
         "due_date": instance.due_date.isoformat() if instance.due_date else None,
+        "snooze_until": (
+            instance.snooze_until.isoformat() if instance.snooze_until else None
+        ),
     }
 
 
 def _ordered_open_tasks(
     instances: list[TaskInstance], today: date
 ) -> list[TaskInstance]:
-    """Order all open tasks without applying the push pool's due-date filter."""
-    urgent = build_urgency_pool(instances, today)
+    """Order all open tasks: urgent/overdue first, future next, snoozed last."""
+    snoozed = [i for i in instances if i.snooze_until and i.snooze_until > today]
+    snoozed_ids = {i.id for i in snoozed}
+    active = [i for i in instances if i.id not in snoozed_ids]
+    urgent = build_urgency_pool(active, today)
     urgent_ids = {item.id for item in urgent}
     future = sorted(
-        (item for item in instances if item.id not in urgent_ids),
+        (item for item in active if item.id not in urgent_ids),
         key=lambda item: (item.due_date or date.max, item.id),
     )
-    return [*urgent, *future]
+    snoozed_sorted = sorted(
+        snoozed, key=lambda item: (item.snooze_until or date.max, item.id)
+    )
+    return [*urgent, *future, *snoozed_sorted]
 
 
 class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
@@ -275,16 +301,30 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
     async def _generate_due_instances(self) -> None:
         today = self.clock.today()
         now = self.clock.now()
-        existing = list(self.store.task_instances.values())
         rules = list(self.store.task_rules.values())
-        for inst in due_instances_for(rules, today, existing, now):
+        new_instances: list[TaskInstance] = []
+
+        for days_ahead in range(_LOOKAHEAD_DAYS + 1):
+            candidate = today + timedelta(days=days_ahead)
+            # Pass already-generated future instances as part of existing so that
+            # _has_open_instance blocks a second future slot for the same rule.
+            existing = list(self.store.task_instances.values()) + new_instances
+            day_instances = due_instances_for(rules, candidate, existing, now)
+            new_instances.extend(day_instances)
+
+        for inst in new_instances:
             self.store.task_instances[inst.id] = inst
-            await self._async_log_event(
-                EVENT_TASK_CREATED,
-                task=inst,
-                decision_reason="recurrence due",
-            )
+            if inst.due_date == today:
+                # Only log task_created for today's instances; future ones are
+                # pre-generated silently and will be visible as upcoming tasks.
+                await self._async_log_event(
+                    EVENT_TASK_CREATED,
+                    task=inst,
+                    decision_reason="recurrence due",
+                )
         self._prune_completed(today)
+        if new_instances:
+            self.store.async_schedule_save()
 
     def _prune_completed(self, today: date) -> None:
         cutoff = today - timedelta(days=_COMPLETED_RETENTION_DAYS)
@@ -297,6 +337,15 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         ]
         for inst_id in stale:
             del self.store.task_instances[inst_id]
+
+    def _completed_today(self, person: str, today: date) -> bool:
+        """True if person completed any task today (any source)."""
+        return any(
+            inst.completed_by == person
+            and inst.completed_at is not None
+            and inst.completed_at.date() == today
+            for inst in self.store.task_instances.values()
+        )
 
     def _push_enabled(self, person_settings: PersonSettings, day: date) -> bool:
         return scheduler.push_enabled_for_day(
@@ -342,6 +391,12 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         if chain.current_task_id is not None:
             return  # waiting for the current task's action
         if not chain.started and not self._push_enabled(settings, today):
+            return
+        if self.settings.skip_push_after_daily_completion and self._completed_today(
+            person, today
+        ):
+            chain.active = False
+            chain.ended_reason = "daily_completion_reached"
             return
 
         open_instances = [
@@ -445,12 +500,32 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         await self.async_advance_chain(person)
         await self._persist_and_refresh()
 
+    async def async_reopen_task(self, task_id: str) -> None:
+        """Reopen a completed task, correcting the stats log (§Feature 2)."""
+        inst = self.store.task_instances.get(task_id)
+        if inst is None or inst.status != TaskStatus.COMPLETED:
+            return
+        person = inst.completed_by
+        inst.status = TaskStatus.OPEN
+        inst.completed_at = None
+        inst.completed_by = None
+        inst.completion_source = None
+        self._book.release(task_id)
+        await self._async_log_event(
+            EVENT_TASK_REOPENED,
+            task=inst,
+            person=person,
+            decision_reason="reopened by user",
+        )
+        await self._persist_and_refresh()
+
     async def async_snooze_task(self, task_id: str, person: str) -> None:
-        """Snooze a task without changing its due date (§12.7/§19.2)."""
+        """Snooze a task until tomorrow (§12.7/§19.2)."""
         inst = self.store.task_instances.get(task_id)
         if inst is None:
             return
         today = self.clock.today()
+        inst.snooze_until = today + timedelta(days=1)
         self._book.release(task_id)
         chain = self._get_chain(person, today)
         if chain.current_task_id == task_id:
@@ -549,18 +624,35 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         items = instances[offset : offset + limit]
         return {
             "api_version": CARD_API_VERSION,
-            "items": [task_payload(item) for item in items],
+            "items": [
+                task_payload(
+                    item,
+                    self.store.task_rules.get(item.rule_id) if item.rule_id else None,
+                )
+                for item in items
+            ],
             "total": total,
             "limit": limit,
             "offset": offset,
             "has_more": offset + len(items) < total,
         }
 
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        """Return the full payload for a single task, including rule metadata."""
+        inst = self.store.task_instances.get(task_id)
+        if inst is None:
+            return None
+        rule = self.store.task_rules.get(inst.rule_id) if inst.rule_id else None
+        return task_payload(inst, rule)
+
     async def async_update_task(self, task_id: str, changes: dict[str, Any]) -> None:
-        """Update mutable fields of an existing task (§19)."""
+        """Update mutable fields of a task and its source rule (§19)."""
         inst = self.store.task_instances.get(task_id)
         if inst is None:
             return
+        today = self.clock.today()
+
+        # --- Instance fields (apply to this occurrence) ---
         for field_name in (
             "title",
             "description",
@@ -581,6 +673,51 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             inst.assignment_mode = AssignmentMode(changes["assignment_mode"])
         if "assignment_person" in changes:
             inst.assignment_person = changes["assignment_person"]
+
+        # --- Rule fields (persist changes to all future occurrences) ---
+        rule = self.store.task_rules.get(inst.rule_id) if inst.rule_id else None
+        if rule is not None:
+            for field_name in (
+                "title", "description", "room", "category", "estimated_duration_minutes"
+            ):
+                if field_name in changes:
+                    setattr(rule, field_name, changes[field_name])
+            if "importance" in changes:
+                rule.importance = Importance(changes["importance"])
+            if "visibility_mode" in changes:
+                rule.visibility_mode = VisibilityMode(changes["visibility_mode"])
+            if "visibility_persons" in changes:
+                rule.visibility_persons = changes["visibility_persons"]
+            if "assignment_mode" in changes:
+                rule.assignment_mode = AssignmentMode(changes["assignment_mode"])
+            if "assignment_person" in changes:
+                rule.assignment_person = changes["assignment_person"]
+
+            _recurrence_keys = (
+                "recurrence_type", "recurrence_interval", "recurrence_weekdays"
+            )
+            recurrence_changed = any(k in changes for k in _recurrence_keys)
+            if "recurrence_type" in changes:
+                rule.recurrence_type = RecurrenceType(changes["recurrence_type"])
+            if "recurrence_interval" in changes:
+                rule.recurrence_interval = changes["recurrence_interval"]
+            if "recurrence_weekdays" in changes:
+                rule.recurrence_weekdays = changes["recurrence_weekdays"]
+
+            if recurrence_changed:
+                # Re-anchor from today so the new interval starts now.
+                rule.created_date = today
+                # Drop pre-generated future instances — they used the old schedule.
+                stale = [
+                    iid for iid, i in self.store.task_instances.items()
+                    if i.rule_id == rule.id
+                    and i.status == TaskStatus.OPEN
+                    and i.due_date is not None
+                    and i.due_date > today
+                ]
+                for iid in stale:
+                    del self.store.task_instances[iid]
+
         await self._async_log_event(
             EVENT_TASK_UPDATED, task=inst, decision_reason="manual update"
         )
@@ -715,6 +852,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
     # Sensor snapshot (read/derive layer)
     # ------------------------------------------------------------------
     async def _async_update_data(self) -> ChoreFlowData:
+        await self._generate_due_instances()
         today = self.clock.today()
         week_start = today - timedelta(days=today.weekday())
         today_iso = today.isoformat()

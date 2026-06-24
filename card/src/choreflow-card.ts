@@ -6,27 +6,19 @@ import "./choreflow-card-editor";
 
 import type {
   ChoreFlowCardConfig,
+  ChoreFlowTask,
   CurrentOpenTask,
+  EditForm,
   HistoryEvent,
-  ChainAttributes,
   Page,
   PersonConfig,
   Importance,
+  RecurrenceType,
   ServiceResult,
   HomeAssistant,
 } from "./types";
 
 const HISTORY_PAGE = 10;
-
-interface PersonView {
-  entity: string;
-  name: string;
-  active: boolean;
-  completedToday: number | null;
-  remaining: number | null;
-  limit: number | null;
-  hasDue: boolean;
-}
 
 type RowState = "idle" | "pending" | "done" | "snoozed";
 
@@ -42,10 +34,16 @@ export class ChoreFlowCard extends LitElement {
   @state() private _categoryFilter = "all";
   @state() private _groupByRoom = false;
   @state() private _dialogOpen = false;
+  @state() private _personPickerOpen = false;
+  @state() private _pendingAction: { taskId: string; action: "complete" | "snooze" } | null = null;
 
   // per-task transient state (optimistic UI + double-click protection)
   @state() private _rowState: Record<string, RowState> = {};
   @state() private _rowError: Record<string, string> = {};
+
+  // task edit dialog
+  @state() private _editForm: EditForm | null = null;
+  @state() private _editSaving = false;
 
   // history (loaded lazily via get_history response service)
   @state() private _history: HistoryEvent[] = [];
@@ -135,23 +133,6 @@ export class ChoreFlowCard extends LitElement {
     return (st?.attributes?.friendly_name as string) || cfg.entity.split(".").pop() || cfg.entity;
   }
 
-  private _personViews(): PersonView[] {
-    return (this._config.persons ?? []).map((p) => {
-      const chain = p.chain_active ? this.hass?.states[p.chain_active] : undefined;
-      const attrs = (chain?.attributes ?? {}) as ChainAttributes;
-      const hasDueState = p.has_due_tasks ? this.hass?.states[p.has_due_tasks]?.state : undefined;
-      return {
-        entity: p.entity,
-        name: this._personName(p),
-        active: chain?.state === "on" || attrs.active === true,
-        completedToday: attrs.tasks_completed_today ?? this._num(p.completed_today),
-        remaining: attrs.remaining_today ?? this._num(p.remaining_today),
-        limit: attrs.daily_limit ?? null,
-        hasDue: hasDueState === "on",
-      };
-    });
-  }
-
   // ---- date helpers ----
 
   private _dueInfo(due: string | null) {
@@ -196,16 +177,37 @@ export class ChoreFlowCard extends LitElement {
   // ---- services (Home Assistant service API only) ----
 
   private _defaultPerson(): string | undefined {
-    return this._config.default_person ?? this._config.persons?.[0]?.entity;
+    return (
+      this._config.default_person ??
+      (this._personFilter !== "all" ? this._personFilter : undefined) ??
+      this._config.persons?.[0]?.entity
+    );
+  }
+
+  private _availablePersonsForPicker(): Array<{ entity: string; name: string }> {
+    if (this._config.persons?.length) {
+      return this._config.persons.map((p) => ({ entity: p.entity, name: this._personName(p) }));
+    }
+    return Object.keys(this.hass.states)
+      .filter((id) => id.startsWith("person."))
+      .map((id) => ({
+        entity: id,
+        name: (this.hass.states[id].attributes?.friendly_name as string) || id.split(".").pop() || id,
+      }));
   }
 
   private async _completeTask(taskId: string): Promise<void> {
     if (this._rowState[taskId] === "pending" || this._rowState[taskId] === "done") return; // dbl-click guard
     const person = this._defaultPerson();
     if (!person) {
-      this._setRowError(taskId, "Keine Person konfiguriert.");
+      this._pendingAction = { taskId, action: "complete" };
+      this._personPickerOpen = true;
       return;
     }
+    await this._executeComplete(taskId, person);
+  }
+
+  private async _executeComplete(taskId: string, person: string): Promise<void> {
     this._setRow(taskId, "pending");
     this._clearRowError(taskId);
     try {
@@ -225,9 +227,14 @@ export class ChoreFlowCard extends LitElement {
     if (this._rowState[taskId] === "pending" || this._rowState[taskId] === "snoozed") return;
     const person = this._defaultPerson();
     if (!person) {
-      this._setRowError(taskId, "Keine Person konfiguriert.");
+      this._pendingAction = { taskId, action: "snooze" };
+      this._personPickerOpen = true;
       return;
     }
+    await this._executeSnooze(taskId, person);
+  }
+
+  private async _executeSnooze(taskId: string, person: string): Promise<void> {
     this._setRow(taskId, "pending");
     this._clearRowError(taskId);
     try {
@@ -239,19 +246,86 @@ export class ChoreFlowCard extends LitElement {
     }
   }
 
-  private async _startFlow(person: string): Promise<void> {
+  private async _reopenTask(taskId: string): Promise<void> {
     try {
-      await this.hass.callService("choreflow", "start_daily_flow", { person_entity: person });
+      await this.hass.callService("choreflow", "reopen_task", { task_id: taskId });
+      await this._loadHistory(true);
     } catch (err) {
-      console.error("[choreflow] start_daily_flow", err);
+      console.error("[choreflow] reopen_task", err);
     }
   }
 
-  private async _sendNext(person: string): Promise<void> {
+  private async _openEdit(taskId: string): Promise<void> {
+    const res = await this.hass.connection.sendMessagePromise<{ response?: ChoreFlowTask }>({
+      type: "call_service",
+      domain: "choreflow",
+      service: "get_task",
+      service_data: { task_id: taskId },
+      return_response: true,
+    });
+    const task = res?.response;
+    if (!task) return;
+    this._editForm = {
+      task_id: taskId,
+      task_rule_id: task.task_rule_id ?? null,
+      title: task.title ?? "",
+      description: task.description ?? "",
+      room: task.room ?? "",
+      category: task.category ?? "",
+      importance: task.importance ?? "normal",
+      due_date: task.due_date ?? "",
+      estimated_duration_minutes: task.estimated_duration_minutes != null ? String(task.estimated_duration_minutes) : "",
+      recurrence_type: (task.recurrence_type as RecurrenceType) ?? "once",
+      recurrence_interval: task.recurrence_interval != null ? String(task.recurrence_interval) : "1",
+      recurrence_weekdays: task.recurrence_weekdays ?? [],
+    };
+  }
+
+  private _closeEdit(): void {
+    this._editForm = null;
+    this._editSaving = false;
+  }
+
+  private _setEditField<K extends keyof EditForm>(key: K, value: EditForm[K]): void {
+    if (!this._editForm) return;
+    this._editForm = { ...this._editForm, [key]: value };
+  }
+
+  private _toggleEditWeekday(day: number): void {
+    if (!this._editForm) return;
+    const days = this._editForm.recurrence_weekdays;
+    const next = days.includes(day) ? days.filter((d) => d !== day) : [...days, day];
+    this._editForm = { ...this._editForm, recurrence_weekdays: next };
+  }
+
+  private async _saveEdit(): Promise<void> {
+    if (!this._editForm || this._editSaving) return;
+    this._editSaving = true;
+    const f = this._editForm;
+    const changes: Record<string, unknown> = {
+      task_id: f.task_id,
+      title: f.title,
+      room: f.room || undefined,
+      category: f.category || undefined,
+      importance: f.importance,
+    };
+    if (f.description) changes.description = f.description;
+    if (f.due_date) changes.due_date = f.due_date;
+    if (f.estimated_duration_minutes) changes.estimated_duration_minutes = Number(f.estimated_duration_minutes);
+    if (f.task_rule_id) {
+      changes.recurrence_type = f.recurrence_type;
+      if (f.recurrence_type === "every_n_days") {
+        changes.recurrence_interval = Number(f.recurrence_interval) || 1;
+      } else if (f.recurrence_type === "weekdays") {
+        changes.recurrence_weekdays = f.recurrence_weekdays;
+      }
+    }
     try {
-      await this.hass.callService("choreflow", "send_next_task", { person_entity: person });
+      await this.hass.callService("choreflow", "update_task", changes);
+      this._closeEdit();
     } catch (err) {
-      console.error("[choreflow] send_next_task", err);
+      console.error("[choreflow] update_task", err);
+      this._editSaving = false;
     }
   }
 
@@ -322,18 +396,26 @@ export class ChoreFlowCard extends LitElement {
 
   // ---- derived view model ----
 
+  private _isSnoozed(t: CurrentOpenTask): boolean {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return (
+      this._rowState[t.task_id] === "snoozed" ||
+      (!!t.snooze_until && t.snooze_until > todayIso)
+    );
+  }
+
   private _visibleTasks(): CurrentOpenTask[] {
-    let tasks = this._openTasks().filter((t) => {
-      const rs = this._rowState[t.task_id];
-      return rs !== "done" && rs !== "snoozed";
-    });
+    let tasks = this._openTasks().filter((t) => this._rowState[t.task_id] !== "done");
     if (this._roomFilter !== "all") tasks = tasks.filter((t) => t.room === this._roomFilter);
     if (this._categoryFilter !== "all") tasks = tasks.filter((t) => t.category === this._categoryFilter);
     // Person filter is delegated to get_tasks in production via _refreshFilteredTasks();
     // the open_tasks attribute is the global, urgency-sorted feed.
-    return tasks
-      .slice()
-      .sort((a, b) => this._dueInfo(b.due_date).rank + impWeight(b.importance) - (this._dueInfo(a.due_date).rank + impWeight(a.importance)));
+    return tasks.slice().sort((a, b) => {
+      const aSnoozed = this._isSnoozed(a);
+      const bSnoozed = this._isSnoozed(b);
+      if (aSnoozed !== bSnoozed) return aSnoozed ? 1 : -1;
+      return this._dueInfo(b.due_date).rank + impWeight(b.importance) - (this._dueInfo(a.due_date).rank + impWeight(a.importance));
+    });
   }
 
   private _rooms(): string[] {
@@ -400,6 +482,8 @@ export class ChoreFlowCard extends LitElement {
       </ha-card>
 
       ${this._dialogOpen ? this._renderDialog() : nothing}
+      ${this._personPickerOpen ? this._renderPersonPicker() : nothing}
+      ${this._editForm ? this._renderEditDialog() : nothing}
     `;
   }
 
@@ -411,30 +495,11 @@ export class ChoreFlowCard extends LitElement {
   }
 
   private _renderTasks(): TemplateResult {
-    const persons = this._personViews();
     const tasks = this._visibleTasks();
     const rooms = this._rooms();
     const categories = this._categories();
 
     return html`
-      ${persons.length
-        ? html`<div class="chains">
-            ${persons.map(
-              (p) => html`<div class="chain">
-                <span class="chain-name">
-                  <span class="dot ${p.active ? "ok" : "off"}"></span>${p.name}
-                </span>
-                <span class="fact">${p.active ? "Kette aktiv" : "Kette inaktiv"}</span>
-                <span class="fact">· Heute ${p.completedToday ?? 0}</span>
-                <span class="fact">· Slots ${p.remaining ?? 0}/${p.limit ?? "—"}</span>
-                <button class="link" @click=${() => (p.active ? this._sendNext(p.entity) : this._startFlow(p.entity))}>
-                  ${p.active ? "Nächste Aufgabe" : "Tag starten"}
-                </button>
-              </div>`
-            )}
-          </div>`
-        : nothing}
-
       <div class="filters">
         <div class="seg">
           <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => (this._personFilter = "all")}>Alle</button>
@@ -482,29 +547,41 @@ export class ChoreFlowCard extends LitElement {
 
   private _renderRow(t: CurrentOpenTask): TemplateResult {
     const due = this._dueInfo(t.due_date);
+    const daysUntil = t.due_date
+      ? Math.round((new Date(t.due_date + "T00:00:00").getTime() - new Date().setHours(0,0,0,0)) / 86_400_000)
+      : null;
+
+    // urgClass drives the left border accent and the due-date pill colour.
+    // High importance always gets the amber accent regardless of due date.
     let urgClass = "normal";
+    if (due.isOverdue) urgClass = "overdue";
+    else if (t.importance === "high") urgClass = "high";
+    else if (due.isToday) urgClass = "today";
+
+    // urgLabel/urgIcon are the text badge — only shown when actionably soon.
     let urgIcon = "";
     let urgLabel = "";
     if (due.isOverdue) {
-      urgClass = "overdue";
       urgIcon = "mdi:alert";
       urgLabel = `Überfällig · ${due.overdueDays} ${due.overdueDays === 1 ? "Tag" : "Tage"}`;
-    } else if (t.importance === "high") {
-      urgClass = "high";
-      urgIcon = "mdi:chevron-up";
-      urgLabel = "Wichtig";
+    } else if (due.isToday && t.importance === "high") {
+      urgIcon = "mdi:alert-circle";
+      urgLabel = "Heute fällig · Wichtig";
     } else if (due.isToday) {
-      urgClass = "today";
       urgIcon = "mdi:clock-outline";
       urgLabel = "Heute fällig";
+    } else if (t.importance === "high" && daysUntil !== null && daysUntil <= 2) {
+      urgIcon = "mdi:chevron-up";
+      urgLabel = daysUntil === 1 ? "Morgen fällig · Wichtig" : "Bald fällig · Wichtig";
     }
     const rs = this._rowState[t.task_id] ?? "idle";
+    const isSnoozed = this._isSnoozed(t);
     const err = this._rowError[t.task_id];
     const hasId = !!t.task_id;
     const meta = [t.room, t.category];
     if (t.estimated_duration_minutes) meta.push(`${t.estimated_duration_minutes} Min`);
 
-    return html`<div class=${classMap({ row: true, [urgClass]: true, settled: rs === "done" || rs === "snoozed" })}>
+    return html`<div class=${classMap({ row: true, [urgClass]: true, settled: rs === "done", "row-snoozed": isSnoozed })}>
       <div class="row-main">
         <div class="row-top">
           <span class="row-title ${rs === "done" ? "struck" : ""}">${t.title}</span>
@@ -514,6 +591,7 @@ export class ChoreFlowCard extends LitElement {
           ${urgLabel ? html`<span class="urg ${urgClass}"><ha-icon icon=${urgIcon}></ha-icon>${urgLabel}</span>` : nothing}
           <span class="meta-text">${urgLabel ? "· " : ""}${meta.join(" · ")}</span>
         </div>
+        ${isSnoozed ? html`<div class="snooze-badge"><ha-icon icon="mdi:clock-outline"></ha-icon>Aufgeschoben bis morgen</div>` : nothing}
         ${err ? html`<div class="row-error"><ha-icon icon="mdi:alert"></ha-icon>${err}</div>` : nothing}
       </div>
       <div class="row-actions">
@@ -521,10 +599,17 @@ export class ChoreFlowCard extends LitElement {
           ? html`<span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>`
           : rs === "done"
           ? html`<span class="settle ok"><ha-icon icon="mdi:check-circle"></ha-icon>Erledigt</span>`
-          : rs === "snoozed"
-          ? html`<span class="settle warn"><ha-icon icon="mdi:clock-outline"></ha-icon>Später</span>`
+          : isSnoozed
+          ? html`
+              <button class="icon-btn ok" aria-label="Erledigen" title="Erledigen" @click=${() => this._completeTask(t.task_id)}>
+                <ha-icon icon="mdi:check-circle"></ha-icon>
+              </button>
+            `
           : hasId
           ? html`
+              <button class="icon-btn" aria-label="Bearbeiten" title="Bearbeiten" @click=${() => this._openEdit(t.task_id)}>
+                <ha-icon icon="mdi:pencil"></ha-icon>
+              </button>
               <button class="icon-btn" aria-label="Später erinnern" title="Später erinnern" @click=${() => this._snoozeTask(t.task_id)}>
                 <ha-icon icon="mdi:clock-outline"></ha-icon>
               </button>
@@ -547,6 +632,9 @@ export class ChoreFlowCard extends LitElement {
         : html`<div class="list">
             ${this._history.map((h) => {
               const v = eventVisual(h.event_type);
+              const canReopen =
+                (h.event_type === "task_completed" || h.event_type === "task_completed_from_todo") &&
+                !!h.task_id;
               const meta = [v.label, h.room, h.person_entity ? personLabel(this.hass, h.person_entity) : null].filter(Boolean);
               return html`<div class="hist">
                 <ha-icon class=${v.tone} icon=${v.icon}></ha-icon>
@@ -557,6 +645,11 @@ export class ChoreFlowCard extends LitElement {
                   </div>
                   <div class="hist-meta">${meta.join(" · ")}</div>
                 </div>
+                ${canReopen
+                  ? html`<button class="icon-btn" aria-label="Korrigieren" title="Erledigung rückgängig machen" @click=${() => this._reopenTask(h.task_id!)}>
+                      <ha-icon icon="mdi:undo"></ha-icon>
+                    </button>`
+                  : nothing}
               </div>`;
             })}
           </div>`}
@@ -566,6 +659,124 @@ export class ChoreFlowCard extends LitElement {
           </button>`
         : nothing}
     `;
+  }
+
+  private _renderPersonPicker(): TemplateResult {
+    const persons = this._availablePersonsForPicker();
+    const close = () => {
+      this._personPickerOpen = false;
+      this._pendingAction = null;
+    };
+    const pick = async (entity: string) => {
+      this._personPickerOpen = false;
+      const pending = this._pendingAction;
+      this._pendingAction = null;
+      if (!pending) return;
+      if (pending.action === "complete") {
+        await this._executeComplete(pending.taskId, entity);
+      } else {
+        await this._executeSnooze(pending.taskId, entity);
+      }
+    };
+    return html`<div class="overlay" @click=${close}>
+      <div class="dialog" style="max-width:320px" @click=${(e: Event) => e.stopPropagation()}>
+        <div class="dlg-head">
+          <span>Wer bist du?</span>
+          <button type="button" class="icon-btn" aria-label="Schließen" @click=${close}><ha-icon icon="mdi:close"></ha-icon></button>
+        </div>
+        <div class="dlg-body">
+          ${persons.length
+            ? persons.map(
+                (p) => html`<button class="person-pick-btn" @click=${() => pick(p.entity)}>${p.name}</button>`
+              )
+            : html`<p style="margin:0;font-size:13px;color:var(--secondary-text-color)">Keine Personen gefunden. Bitte <code>persons</code> oder <code>default_person</code> in der Kartenkonfiguration setzen.</p>`}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  private _renderEditDialog(): TemplateResult {
+    const f = this._editForm!;
+    const isRule = !!f.task_rule_id;
+    const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    return html`<div class="overlay" @click=${() => this._closeEdit()}>
+      <div class="dialog edit-dialog" @click=${(e: Event) => e.stopPropagation()}>
+        <div class="dlg-head">
+          <span>Aufgabe bearbeiten</span>
+          <button type="button" class="icon-btn" aria-label="Schließen" @click=${() => this._closeEdit()}>
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+        </div>
+        <div class="dlg-body edit-body">
+          <label class="edit-label">Titel
+            <input class="edit-input" type="text" .value=${f.title}
+              @input=${(e: Event) => this._setEditField("title", (e.target as HTMLInputElement).value)} />
+          </label>
+          <label class="edit-label">Beschreibung
+            <textarea class="edit-input edit-textarea" rows="2"
+              @input=${(e: Event) => this._setEditField("description", (e.target as HTMLTextAreaElement).value)}
+            >${f.description}</textarea>
+          </label>
+          <div class="edit-row2">
+            <label class="edit-label">Raum
+              <input class="edit-input" type="text" .value=${f.room}
+                @input=${(e: Event) => this._setEditField("room", (e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="edit-label">Kategorie
+              <input class="edit-input" type="text" .value=${f.category}
+                @input=${(e: Event) => this._setEditField("category", (e.target as HTMLInputElement).value)} />
+            </label>
+          </div>
+          <div class="edit-row2">
+            <label class="edit-label">Wichtigkeit
+              <select class="edit-input" .value=${f.importance}
+                @change=${(e: Event) => this._setEditField("importance", (e.target as HTMLSelectElement).value as Importance)}>
+                <option value="high" ?selected=${f.importance === "high"}>Hoch</option>
+                <option value="normal" ?selected=${f.importance === "normal"}>Normal</option>
+                <option value="low" ?selected=${f.importance === "low"}>Niedrig</option>
+              </select>
+            </label>
+            <label class="edit-label">Dauer (Min)
+              <input class="edit-input" type="number" min="1" max="1440" .value=${f.estimated_duration_minutes}
+                @input=${(e: Event) => this._setEditField("estimated_duration_minutes", (e.target as HTMLInputElement).value)} />
+            </label>
+          </div>
+          <label class="edit-label">Fälligkeitsdatum
+            <input class="edit-input" type="date" .value=${f.due_date}
+              @change=${(e: Event) => this._setEditField("due_date", (e.target as HTMLInputElement).value)} />
+          </label>
+          ${isRule ? html`
+            <div class="edit-section-head">Wiederholung</div>
+            <div class="edit-recurrence-btns">
+              ${(["once", "every_n_days", "weekdays"] as RecurrenceType[]).map((rt) => html`
+                <button class=${classMap({ "recurrence-btn": true, active: f.recurrence_type === rt })}
+                  type="button" @click=${() => this._setEditField("recurrence_type", rt)}>
+                  ${{ once: "Einmalig", every_n_days: "Alle N Tage", weekdays: "Wochentage" }[rt]}
+                </button>`)}
+            </div>
+            ${f.recurrence_type === "every_n_days" ? html`
+              <label class="edit-label">Intervall (Tage)
+                <input class="edit-input" type="number" min="1" max="365" .value=${f.recurrence_interval}
+                  @input=${(e: Event) => this._setEditField("recurrence_interval", (e.target as HTMLInputElement).value)} />
+              </label>` : nothing}
+            ${f.recurrence_type === "weekdays" ? html`
+              <div class="weekday-picker">
+                ${DAYS.map((d, i) => html`
+                  <button type="button"
+                    class=${classMap({ "wd-btn": true, active: f.recurrence_weekdays.includes(i) })}
+                    @click=${() => this._toggleEditWeekday(i)}>${d}</button>`)}
+              </div>` : nothing}
+          ` : nothing}
+        </div>
+        <div class="dlg-footer">
+          <button class="dlg-btn secondary" type="button" @click=${() => this._closeEdit()}>Abbrechen</button>
+          <button class="dlg-btn primary" type="button" ?disabled=${this._editSaving} @click=${() => this._saveEdit()}>
+            ${this._editSaving ? html`<ha-icon icon="mdi:loading" style="animation:spin .8s linear infinite"></ha-icon>` : nothing}
+            Speichern
+          </button>
+        </div>
+      </div>
+    </div>`;
   }
 
   private _renderDialog(): TemplateResult {
@@ -584,6 +795,7 @@ export class ChoreFlowCard extends LitElement {
       }
       const visMode = String(fd.get("visibility_mode") || "all_enabled_persons");
       const assignMode = String(fd.get("assignment_mode") || "random");
+      const calendarEntityId = String(fd.get("calendar_export_entity_id") || "").trim() || undefined;
       const data: Record<string, unknown> = {
         title,
         description: String(fd.get("description") || "") || undefined,
@@ -596,6 +808,7 @@ export class ChoreFlowCard extends LitElement {
         visibility_persons: visMode === "selected_persons" ? fd.getAll("visibility_persons").map(String) : undefined,
         assignment_mode: assignMode,
         assignment_person: assignMode === "assigned" ? String(fd.get("assignment_person") || "") || undefined : undefined,
+        calendar_export_entity_id: calendarEntityId,
       };
       try {
         await this._createTask(data);
@@ -651,6 +864,20 @@ export class ChoreFlowCard extends LitElement {
               ${persons.map((p) => html`<option value=${p.entity}>${this._personName(p)}</option>`)}
             </select></label>
           </details>
+          <details>
+            <summary>Kalender-Export</summary>
+            <label style="margin-top:8px">
+              Kalender-Entität (optional)
+              <input
+                name="calendar_export_entity_id"
+                placeholder="calendar.outlook_kalender"
+                autocomplete="off"
+              />
+            </label>
+            <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">
+              Falls angegeben, wird der Fälligkeitstermin als Termin im gewählten Kalender angelegt.
+            </p>
+          </details>
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn ghost" @click=${close}>Abbrechen</button>
@@ -688,14 +915,7 @@ export class ChoreFlowCard extends LitElement {
     .stat-num.error { color: var(--error-color); }
     .stat-label { font-size: 10.5px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--secondary-text-color); margin-top: 3px; }
 
-    .chains { padding: 12px 16px; border-bottom: 1px solid var(--divider-color); display: flex; flex-direction: column; gap: 10px; }
-    .chain { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .chain-name { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; min-width: 78px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; }
-    .dot.ok { background: var(--success-color, var(--primary-color)); }
-    .dot.off { background: var(--disabled-text-color); }
-    .fact { font-size: 11.5px; color: var(--secondary-text-color); }
-    .link { margin-left: auto; border: none; background: transparent; color: var(--primary-color); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+
 
     .filters { padding: 10px 16px; border-bottom: 1px solid var(--divider-color); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .filters select { font: inherit; font-size: 12px; color: var(--primary-text-color); background: var(--primary-background-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 6px 8px; cursor: pointer; }
@@ -714,6 +934,9 @@ export class ChoreFlowCard extends LitElement {
     .row.high::before { background: var(--warning-color); }
     .row.today::before { background: var(--primary-color); }
     .row.settled { opacity: .5; }
+    .row.row-snoozed { opacity: .65; }
+    .snooze-badge { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 11.5px; color: var(--warning-color); }
+    .snooze-badge ha-icon { --mdc-icon-size: 13px; }
     .row-main { flex: 1; min-width: 0; }
     .row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
     .row-title { font-size: 14px; font-weight: 500; line-height: 1.35; }
@@ -767,6 +990,8 @@ export class ChoreFlowCard extends LitElement {
     .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 16px; border-bottom: 1px solid var(--divider-color); font-size: 15px; font-weight: 500; }
     .dlg-body { padding: 16px; display: flex; flex-direction: column; gap: 13px; max-height: 64vh; overflow: auto; }
     .dlg-body label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--secondary-text-color); font-weight: 500; }
+    .person-pick-btn { width: 100%; font: inherit; font-size: 14px; font-weight: 500; color: var(--primary-text-color); background: var(--primary-background-color); border: 1px solid var(--divider-color); border-radius: 8px; padding: 12px 16px; cursor: pointer; text-align: left; }
+    .person-pick-btn:hover { background: var(--secondary-background-color); }
     .dlg-body input, .dlg-body select { font: inherit; font-size: 14px; color: var(--primary-text-color); background: var(--primary-background-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 9px 10px; outline: none; }
     .two { display: flex; gap: 10px; }
     .two label { flex: 1; }
@@ -779,6 +1004,28 @@ export class ChoreFlowCard extends LitElement {
     .btn { border-radius: 6px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
     .btn.ghost { border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); }
     .btn.primary { border: none; background: var(--primary-color); color: var(--text-primary-color, #fff); }
+
+    /* ---- edit dialog ---- */
+    .edit-dialog { max-width: 500px; }
+    .edit-body { gap: 12px; }
+    .edit-label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--secondary-text-color); font-weight: 500; }
+    .edit-input { font: inherit; font-size: 14px; color: var(--primary-text-color); background: var(--primary-background-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 8px 10px; outline: none; width: 100%; box-sizing: border-box; }
+    .edit-input:focus { border-color: var(--primary-color); }
+    .edit-textarea { resize: vertical; min-height: 56px; font-family: inherit; }
+    .edit-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .edit-section-head { font-size: 12px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .05em; padding-top: 4px; border-top: 1px solid var(--divider-color); }
+    .edit-recurrence-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .recurrence-btn { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--divider-color); border-radius: 20px; background: transparent; color: var(--secondary-text-color); cursor: pointer; }
+    .recurrence-btn.active { border-color: var(--primary-color); background: var(--primary-color); color: var(--text-primary-color, #fff); }
+    .weekday-picker { display: flex; gap: 5px; flex-wrap: wrap; }
+    .wd-btn { font: inherit; font-size: 13px; font-weight: 500; width: 38px; height: 38px; border: 1px solid var(--divider-color); border-radius: 50%; background: transparent; color: var(--secondary-text-color); cursor: pointer; }
+    .wd-btn.active { border-color: var(--primary-color); background: var(--primary-color); color: var(--text-primary-color, #fff); }
+    .dlg-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 16px; border-top: 1px solid var(--divider-color); }
+    .dlg-btn { border-radius: 6px; padding: 9px 18px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .dlg-btn.secondary { border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); }
+    .dlg-btn.primary { border: none; background: var(--primary-color); color: var(--text-primary-color, #fff); }
+    .dlg-btn:disabled { opacity: .6; cursor: default; }
+    .dlg-btn ha-icon { --mdc-icon-size: 16px; }
 
     @media (prefers-reduced-motion: reduce) { * { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
   `;
@@ -797,6 +1044,7 @@ function eventVisual(type: string): { icon: string; tone: string; label: string 
   switch (type) {
     case "task_completed": return { icon: "mdi:check-circle", tone: "ok", label: "Erledigt" };
     case "task_completed_from_todo": return { icon: "mdi:clipboard-check", tone: "ok", label: "Erledigt (To-do)" };
+    case "task_reopened": return { icon: "mdi:undo", tone: "warn", label: "Korrigiert" };
     case "task_snoozed": return { icon: "mdi:clock-outline", tone: "warn", label: "Später erinnert" };
     case "task_created": return { icon: "mdi:plus-circle-outline", tone: "muted", label: "Erstellt" };
     case "task_updated": return { icon: "mdi:pencil", tone: "muted", label: "Geändert" };

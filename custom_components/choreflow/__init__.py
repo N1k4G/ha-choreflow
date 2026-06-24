@@ -13,6 +13,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import start as ha_start
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_state_change_event,
@@ -71,7 +72,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DATA_CALENDAR_SOURCE: calendar_source,
     }
 
-    async_check_issues(hass, entry, settings)
+    @callback
+    def _check_issues_at_start(_hass: HomeAssistant) -> None:
+        async_check_issues(hass, entry, settings)
+
+    cancel = ha_start.async_at_started(hass, _check_issues_at_start)
+    if cancel is not None:
+        entry.async_on_unload(cancel)
+
     async_register_services(hass)
     await async_register_card(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -191,9 +199,14 @@ def _register_todo_sync(
     entry.async_on_unload(
         async_track_state_change_event(hass, [todo_sync.entity_id], _on_todo_change)
     )
-    entry.async_create_background_task(
-        hass, todo_sync.async_sync(), name="choreflow_initial_todo_sync"
-    )
+    def _start_todo_sync(_hass: HomeAssistant) -> None:
+        entry.async_create_background_task(
+            hass, todo_sync.async_sync(), name="choreflow_initial_todo_sync"
+        )
+
+    cancel = ha_start.async_at_started(hass, _start_todo_sync)
+    if cancel is not None:
+        entry.async_on_unload(cancel)
 
 
 @callback
@@ -218,9 +231,14 @@ def _register_calendar_source(
             second=0,
         )
     )
-    entry.async_create_background_task(
-        hass, calendar_source.async_sync(), name="choreflow_initial_calendar_sync"
-    )
+    def _start_calendar_sync(_hass: HomeAssistant) -> None:
+        entry.async_create_background_task(
+            hass, calendar_source.async_sync(), name="choreflow_initial_calendar_sync"
+        )
+
+    cancel = ha_start.async_at_started(hass, _start_calendar_sync)
+    if cancel is not None:
+        entry.async_on_unload(cancel)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

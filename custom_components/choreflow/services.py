@@ -40,8 +40,11 @@ from .const import (
     SERVICE_DELETE_TASK,
     SERVICE_EXPORT_LOG,
     SERVICE_GET_HISTORY,
+    SERVICE_GET_TASK,
     SERVICE_GET_TASKS,
+    SERVICE_IMPORT_SEED_TASKS,
     SERVICE_REBUILD_CALENDAR_TASKS,
+    SERVICE_REOPEN_TASK,
     SERVICE_SEND_NEXT_TASK,
     SERVICE_SNOOZE_TASK,
     SERVICE_START_DAILY_FLOW,
@@ -50,6 +53,7 @@ from .const import (
 )
 from .coordinator import ChoreFlowCoordinator
 from .models import TaskInstance, TaskStatus, VisibilityMode
+from .seed_tasks import build_seed_rules
 from .sources.calendar_source import CalendarSource
 from .sources.todo_sync import TodoSync
 from .store import LogStore
@@ -74,6 +78,7 @@ _CREATE_SCHEMA = vol.Schema(
         vol.Optional("visibility_persons"): vol.All(cv.ensure_list, [cv.entity_id]),
         vol.Optional("assignment_mode"): _ASSIGNMENT,
         vol.Optional("assignment_person"): cv.entity_id,
+        vol.Optional("calendar_export_entity_id"): cv.entity_id,
     }
 )
 
@@ -91,8 +96,15 @@ _UPDATE_SCHEMA = vol.Schema(
         vol.Optional("visibility_persons"): vol.All(cv.ensure_list, [cv.entity_id]),
         vol.Optional("assignment_mode"): _ASSIGNMENT,
         vol.Optional("assignment_person"): cv.entity_id,
+        vol.Optional("recurrence_type"): vol.In(["every_n_days", "weekdays", "once"]),
+        vol.Optional("recurrence_interval"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional("recurrence_weekdays"): vol.All(
+            cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))]
+        ),
     }
 )
+
+_GET_TASK_SCHEMA = vol.Schema({vol.Required(ATTR_TASK_ID): cv.string})
 
 _DELETE_SCHEMA = vol.Schema({vol.Required(ATTR_TASK_ID): cv.string})
 
@@ -273,6 +285,55 @@ def _validate_can_act(
         )
 
 
+async def _export_to_calendar(
+    hass: HomeAssistant,
+    calendar_entity_id: str,
+    fields: dict[str, Any],
+    task_id: str,
+) -> None:
+    """Create a single all-day calendar event for the task's due date.
+
+    Uses HA's ``calendar.create_event`` service. Compatible with the o365/ms365
+    custom integration that supports writing events. Failures are logged but do
+    not abort the task creation so the user isn't blocked.
+    """
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+    due: Any = fields.get("due_date")
+    if due is None:
+        return
+    due_str = due.isoformat() if hasattr(due, "isoformat") else str(due)
+    summary = fields.get("title", "ChoreFlow-Aufgabe")
+    description = fields.get("description") or ""
+    if not description:
+        room = fields.get("room", "")
+        category = fields.get("category", "")
+        parts = [p for p in (room, category) if p]
+        if parts:
+            description = " · ".join(parts)
+
+    try:
+        await hass.services.async_call(
+            "calendar",
+            "create_event",
+            {
+                "entity_id": calendar_entity_id,
+                "summary": summary,
+                "start_date": due_str,
+                "end_date": due_str,
+                "description": f"[ChoreFlow {task_id}] {description}".strip(),
+            },
+            blocking=True,
+        )
+    except Exception:  # noqa: BLE001 — calendar failures must not block the task
+        _log.warning(
+            "ChoreFlow: calendar export to %s failed for task %s",
+            calendar_entity_id,
+            task_id,
+        )
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Register ChoreFlow services (idempotent)."""
     if hass.services.has_service(DOMAIN, SERVICE_COMPLETE_TASK):
@@ -281,8 +342,11 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _create_task(call: ServiceCall) -> dict[str, Any]:
         coordinator = _require_coordinator(hass)
         fields = dict(call.data)
+        calendar_entity_id: str | None = fields.pop("calendar_export_entity_id", None)
         _validate_task_definition(fields)
         task_id = await coordinator.async_create_task(fields)
+        if calendar_entity_id and fields.get("due_date"):
+            await _export_to_calendar(hass, calendar_entity_id, fields, task_id)
         return {"success": True, "task_id": task_id}
 
     async def _update_task(call: ServiceCall) -> dict[str, Any]:
@@ -321,6 +385,31 @@ def async_register_services(hass: HomeAssistant) -> None:
         await coordinator.async_snooze_task(task_id, person)
         return {"success": True, "task_id": task_id}
 
+    async def _reopen_task(call: ServiceCall) -> dict[str, Any]:
+        coordinator = _require_coordinator(hass)
+        task_id = call.data[ATTR_TASK_ID]
+        task = _require_task(coordinator, task_id)
+        if task.status.value != "completed":
+            raise ServiceValidationError(
+                f"Task {task_id} is not completed and cannot be reopened"
+            )
+        await coordinator.async_reopen_task(task_id)
+        return {"success": True, "task_id": task_id}
+
+    async def _import_seed_tasks(call: ServiceCall) -> dict[str, Any]:
+        coordinator = _require_coordinator(hass)
+        today = coordinator.clock.today()
+        rules = build_seed_rules(today)
+        added = 0
+        for rule in rules:
+            if rule.id not in coordinator.store.task_rules:
+                coordinator.store.task_rules[rule.id] = rule
+                added += 1
+        if added:
+            coordinator.store.async_schedule_save()
+            await coordinator.async_refresh()
+        return {"success": True, "added": added, "skipped": len(rules) - added}
+
     async def _start_daily_flow(call: ServiceCall) -> None:
         coordinator = _coordinator(hass)
         if coordinator is not None:
@@ -352,6 +441,14 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
         written = await log_store.async_export(path, fmt)
         return {"path": written}
+
+    async def _get_task(call: ServiceCall) -> dict[str, Any]:
+        coordinator = _require_coordinator(hass)
+        task_id = call.data[ATTR_TASK_ID]
+        result = coordinator.get_task(task_id)
+        if result is None:
+            raise ServiceValidationError(f"Unknown ChoreFlow task: {task_id}")
+        return result
 
     async def _get_tasks(call: ServiceCall) -> dict[str, Any]:
         coordinator = _require_coordinator(hass)
@@ -422,6 +519,20 @@ def async_register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
+        DOMAIN,
+        SERVICE_REOPEN_TASK,
+        _reopen_task,
+        schema=_DELETE_SCHEMA,  # same shape: just task_id required
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_IMPORT_SEED_TASKS,
+        _import_seed_tasks,
+        schema=vol.Schema({}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
         DOMAIN, SERVICE_START_DAILY_FLOW, _start_daily_flow, schema=_START_FLOW_SCHEMA
     )
     hass.services.async_register(
@@ -442,6 +553,13 @@ def async_register_services(hass: HomeAssistant) -> None:
         _export_log,
         schema=_EXPORT_LOG_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_TASK,
+        _get_task,
+        schema=_GET_TASK_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN,
@@ -467,11 +585,14 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_DELETE_TASK,
         SERVICE_COMPLETE_TASK,
         SERVICE_SNOOZE_TASK,
+        SERVICE_REOPEN_TASK,
+        SERVICE_IMPORT_SEED_TASKS,
         SERVICE_START_DAILY_FLOW,
         SERVICE_SEND_NEXT_TASK,
         SERVICE_SYNC_TODO,
         SERVICE_REBUILD_CALENDAR_TASKS,
         SERVICE_EXPORT_LOG,
+        SERVICE_GET_TASK,
         SERVICE_GET_TASKS,
         SERVICE_GET_HISTORY,
     ):

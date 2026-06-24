@@ -52,6 +52,7 @@ CONF_WEEKDAY_START_TIME: Final = "weekday_start_time"
 CONF_WEEKEND_START_TIME: Final = "weekend_start_time"
 CONF_DAY_END_TIME: Final = "day_end_time"
 CONF_MAX_TASKS_PER_PERSON_PER_DAY: Final = "max_tasks_per_person_per_day"
+CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION: Final = "skip_push_after_daily_completion"
 
 # To-do sync (§6, Lastenheft §16)
 CONF_TODO_SYNC: Final = "todo_sync"
@@ -80,6 +81,7 @@ DEFAULT_WEEKDAY_START_TIME: Final = "17:30"
 DEFAULT_WEEKEND_START_TIME: Final = "10:00"
 DEFAULT_DAY_END_TIME: Final = "20:00"
 DEFAULT_MAX_TASKS_PER_PERSON_PER_DAY: Final = 5
+DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION: Final = True
 
 DEFAULT_PRESENCE_REQUIRED: Final = True
 DEFAULT_WEEKDAY_PUSH_ENABLED: Final = True
@@ -135,6 +137,7 @@ EVENT_TASK_UPDATED: Final = "task_updated"
 EVENT_TASK_DELETED: Final = "task_deleted"
 EVENT_TASK_NOTIFIED: Final = "task_notified"
 EVENT_TASK_COMPLETED: Final = "task_completed"
+EVENT_TASK_REOPENED: Final = "task_reopened"
 EVENT_TASK_SNOOZED: Final = "task_snoozed"
 EVENT_TASK_MISSED_NO_PRESENCE: Final = "task_missed_no_presence"
 EVENT_TASK_EXPIRED: Final = "task_expired"
@@ -149,6 +152,7 @@ LOG_EVENT_TYPES: Final[tuple[str, ...]] = (
     EVENT_TASK_DELETED,
     EVENT_TASK_NOTIFIED,
     EVENT_TASK_COMPLETED,
+    EVENT_TASK_REOPENED,
     EVENT_TASK_SNOOZED,
     EVENT_TASK_MISSED_NO_PRESENCE,
     EVENT_TASK_EXPIRED,
@@ -214,13 +218,16 @@ SERVICE_CREATE_TASK: Final = "create_task"
 SERVICE_UPDATE_TASK: Final = "update_task"
 SERVICE_DELETE_TASK: Final = "delete_task"
 SERVICE_COMPLETE_TASK: Final = "complete_task"
+SERVICE_REOPEN_TASK: Final = "reopen_task"
 SERVICE_SNOOZE_TASK: Final = "snooze_task"
+SERVICE_IMPORT_SEED_TASKS: Final = "import_seed_tasks"
 SERVICE_START_DAILY_FLOW: Final = "start_daily_flow"
 SERVICE_SEND_NEXT_TASK: Final = "send_next_task"
 SERVICE_REBUILD_CALENDAR_TASKS: Final = "rebuild_calendar_tasks"
 SERVICE_SYNC_TODO: Final = "sync_todo"
 SERVICE_EXPORT_LOG: Final = "export_log"
 SERVICE_GET_TASKS: Final = "get_tasks"
+SERVICE_GET_TASK: Final = "get_task"
 SERVICE_GET_HISTORY: Final = "get_history"
 
 # Common service field names.

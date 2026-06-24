@@ -18,13 +18,13 @@ confetti or playful language.
 
 ## Installation
 
-### HACS (recommended)
+The card is **bundled with the ChoreFlow integration** and auto-registered on
+setup — no manual resource step needed. Install ChoreFlow via HACS or manually
+(see the [integration README](../README.md)).
 
-1. HACS → Frontend → ⋮ → *Custom repositories*
-2. Add `https://github.com/your-org/ha-choreflow-card` as type **Lovelace**.
-3. Install **ChoreFlow Card** and reload resources.
+### Manual resource (standalone use)
 
-### Manual
+If you want to load the card independently of the integration:
 
 1. `npm install && npm run build`
 2. Copy `dist/choreflow-card.js` to `config/www/choreflow-card.js`.
@@ -49,16 +49,16 @@ entities:
   completed_this_week: sensor.choreflow_completed_this_week
   active_chains: sensor.choreflow_active_chains
 persons:
-  - entity: person.niklas
-    open_tasks: sensor.choreflow_niklas_open_tasks
-    due_tasks: sensor.choreflow_niklas_due_tasks
-    completed_today: sensor.choreflow_niklas_completed_today
-    remaining_today: sensor.choreflow_niklas_tasks_remaining_today
-    has_due_tasks: binary_sensor.choreflow_niklas_has_due_tasks
-    chain_active: binary_sensor.choreflow_niklas_chain_active
+  - entity: person.alice
+    open_tasks: sensor.choreflow_alice_open_tasks
+    due_tasks: sensor.choreflow_alice_due_tasks
+    completed_today: sensor.choreflow_alice_completed_today
+    remaining_today: sensor.choreflow_alice_tasks_remaining_today
+    has_due_tasks: binary_sensor.choreflow_alice_has_due_tasks
+    chain_active: binary_sensor.choreflow_alice_chain_active
 show_create: true
 show_history: true
-default_person: person.niklas
+default_person: person.alice
 default_room: null
 ```
 

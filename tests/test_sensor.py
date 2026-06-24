@@ -123,6 +123,7 @@ async def test_open_tasks_attribute_list(
         "importance",
         "estimated_duration_minutes",
         "due_date",
+        "snooze_until",
     }
     assert task["task_id"] == "inst_due"
     assert task["title"] == "inst_due"

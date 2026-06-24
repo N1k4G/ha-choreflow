@@ -242,6 +242,7 @@ class TaskInstance:
     completed_at: datetime | None = None
     completed_by: str | None = None
     completion_source: str | None = None
+    snooze_until: date | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -269,6 +270,7 @@ class TaskInstance:
             "completed_at": _dt_to_iso(self.completed_at),
             "completed_by": self.completed_by,
             "completion_source": self.completion_source,
+            "snooze_until": _date_to_iso(self.snooze_until),
         }
 
     @classmethod
@@ -301,6 +303,7 @@ class TaskInstance:
             completed_at=_dt_from_iso(data.get("completed_at")),
             completed_by=data.get("completed_by"),
             completion_source=data.get("completion_source"),
+            snooze_until=_date_from_iso(data.get("snooze_until")),
         )
 
 

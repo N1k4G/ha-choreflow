@@ -30,7 +30,9 @@ _TODAY = date(2026, 6, 15)
 _KEY = f"{_PERSON}|{_TODAY.isoformat()}"
 
 
-def _settings(max_tasks: int = 5) -> ChoreFlowSettings:
+def _settings(
+    max_tasks: int = 5, skip_push_after_completion: bool = False
+) -> ChoreFlowSettings:
     return ChoreFlowSettings(
         name="Home",
         enabled_persons=[_PERSON],
@@ -45,6 +47,7 @@ def _settings(max_tasks: int = 5) -> ChoreFlowSettings:
         },
         schedule=ScheduleConfig.with_defaults(),
         max_tasks_per_person_per_day=max_tasks,
+        skip_push_after_daily_completion=skip_push_after_completion,
     )
 
 
@@ -53,6 +56,7 @@ async def _build(
     clock: FixedClock,
     *,
     max_tasks: int = 5,
+    skip_push_after_completion: bool = False,
 ) -> tuple[ChoreFlowCoordinator, ChoreFlowStore, list[dict]]:
     calls: list[dict] = []
     hass.services.async_register(
@@ -69,7 +73,7 @@ async def _build(
         entry,
         store,
         log_store,
-        _settings(max_tasks),
+        _settings(max_tasks, skip_push_after_completion),
         clock=clock,
         rng=Random(1),
     )
@@ -220,3 +224,52 @@ async def test_day_end_marks_missed_catchup(hass: HomeAssistant) -> None:
 
     assert chain.active is False
     assert chain.ended_reason == "window_end"
+
+
+async def test_skip_push_after_daily_completion(hass: HomeAssistant) -> None:
+    """After completing one task, no further push is sent (Feature 5)."""
+    coordinator, store, calls = await _build(
+        hass, FixedClock(_MON_18), skip_push_after_completion=True
+    )
+    for inst in (
+        make_instance("a", room="Bad", due_date=_TODAY),
+        make_instance("b", room="Bad", due_date=_TODAY),
+    ):
+        store.task_instances[inst.id] = inst
+
+    await coordinator.async_start_daily_flow(_PERSON)
+    await hass.async_block_till_done()
+    chain = store.push_chain_states[_KEY]
+    first = chain.current_task_id
+    assert first is not None
+
+    await coordinator.async_complete_task(first, _PERSON, "push")
+    await hass.async_block_till_done()
+
+    assert store.task_instances[first].status == TaskStatus.COMPLETED
+    assert len(calls) == 1  # no second push after daily completion
+    assert chain.ended_reason == "daily_completion_reached"
+
+
+async def test_skip_push_disabled_still_advances(hass: HomeAssistant) -> None:
+    """With skip_push disabled, chain still advances after completion."""
+    coordinator, store, calls = await _build(
+        hass, FixedClock(_MON_18), skip_push_after_completion=False
+    )
+    for inst in (
+        make_instance("a", room="Bad", due_date=_TODAY),
+        make_instance("b", room="Bad", due_date=_TODAY),
+    ):
+        store.task_instances[inst.id] = inst
+
+    await coordinator.async_start_daily_flow(_PERSON)
+    await hass.async_block_till_done()
+    chain = store.push_chain_states[_KEY]
+    first = chain.current_task_id
+    assert first is not None
+
+    await coordinator.async_complete_task(first, _PERSON, "push")
+    await hass.async_block_till_done()
+
+    assert len(calls) == 2
+    assert chain.tasks_sent_count == 2

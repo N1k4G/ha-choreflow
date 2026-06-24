@@ -1,7 +1,7 @@
 {
   "domain": "choreflow",
   "name": "ChoreFlow",
-  "after_dependencies": ["http", "frontend"],
+  "after_dependencies": ["http", "frontend", "lovelace"],
   "codeowners": ["@N1k4G"],
   "config_flow": true,
   "dependencies": [],
@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/N1k4G/ha-choreflow/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "1.0.0"
 }

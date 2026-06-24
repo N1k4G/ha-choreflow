@@ -40,6 +40,7 @@ def test_preview_payload_stays_compact() -> None:
         "importance": "normal",
         "estimated_duration_minutes": 5,
         "due_date": None,
+        "snooze_until": None,
     }
 
 

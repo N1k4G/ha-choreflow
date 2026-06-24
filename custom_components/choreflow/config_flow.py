@@ -38,6 +38,7 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_SETTINGS,
     CONF_PRESENCE_REQUIRED,
+    CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION,
     CONF_TODO_ENABLED,
     CONF_TODO_ENTITY_ID,
     CONF_TODO_IMPORT_DEFAULTS,
@@ -58,6 +59,7 @@ from .const import (
     DEFAULT_MAX_TASKS_PER_PERSON_PER_DAY,
     DEFAULT_NAME,
     DEFAULT_PRESENCE_REQUIRED,
+    DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION,
     DEFAULT_WEEKDAY_PUSH_ENABLED,
     DEFAULT_WEEKDAY_START_TIME,
     DEFAULT_WEEKEND_PUSH_ENABLED,
@@ -157,6 +159,13 @@ def _schedule_schema(defaults: dict[str, Any]) -> vol.Schema:
                     DEFAULT_MAX_TASKS_PER_PERSON_PER_DAY,
                 ),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
+            vol.Required(
+                CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION,
+                default=defaults.get(
+                    CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION,
+                    DEFAULT_SKIP_PUSH_AFTER_DAILY_COMPLETION,
+                ),
+            ): bool,
         }
     )
 
@@ -355,6 +364,9 @@ class ChoreFlowConfigFlow(ConfigFlow, domain=DOMAIN):
             self._data[CONF_MAX_TASKS_PER_PERSON_PER_DAY] = user_input[
                 CONF_MAX_TASKS_PER_PERSON_PER_DAY
             ]
+            self._data[CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION] = user_input[
+                CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION
+            ]
             return await self.async_step_todo()
         return self.async_show_form(
             step_id="schedule", data_schema=_schedule_schema({})
@@ -473,6 +485,9 @@ class ChoreFlowOptionsFlow(OptionsFlow):
             )
             self._data[CONF_MAX_TASKS_PER_PERSON_PER_DAY] = user_input[
                 CONF_MAX_TASKS_PER_PERSON_PER_DAY
+            ]
+            self._data[CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION] = user_input[
+                CONF_SKIP_PUSH_AFTER_DAILY_COMPLETION
             ]
             return await self.async_step_todo()
         return self.async_show_form(
