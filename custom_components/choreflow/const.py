@@ -214,9 +214,12 @@ ATTR_ENTITY_ID: Final = "entity_id"
 ATTR_EXPORT_FORMAT: Final = "format"
 
 # ---------------------------------------------------------------------------
-# Runtime data key (hass.data[DOMAIN][entry_id])
+# Runtime data keys (hass.data[DOMAIN][entry_id])
 # ---------------------------------------------------------------------------
 DATA_COORDINATOR: Final = "coordinator"
+DATA_STORE: Final = "store"
+DATA_LOG_STORE: Final = "log_store"
+DATA_SETTINGS: Final = "settings"
 
 # ---------------------------------------------------------------------------
 # Device metadata (groups entities under one ChoreFlow device, §5.6)

@@ -13,3 +13,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # 'brands' requires the domain to be listed in home-assistant/brands,
+          # which is a separate manual submission. Ignore until that is merged.
+          ignore: brands

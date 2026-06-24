@@ -19,6 +19,31 @@ from custom_components.choreflow.models import (
 FIXED_NOW = datetime(2026, 6, 18, 17, 30, tzinfo=UTC)
 
 
+def config_entry_data(
+    person: str = "person.niklas",
+    notify: str = "notify.mobile_app_niklas",
+) -> dict:
+    """Minimal-but-complete config entry data for HA setup tests."""
+    return {
+        "name": "Home",
+        "enabled_persons": [person],
+        "person_settings": {
+            person: {
+                "notify_service": notify,
+                "presence_required": True,
+                "weekday_push_enabled": True,
+                "weekend_push_enabled": True,
+            }
+        },
+        "weekday_start_time": "17:30",
+        "weekend_start_time": "10:00",
+        "day_end_time": "20:00",
+        "max_tasks_per_person_per_day": 5,
+        "todo_sync": {"enabled": False},
+        "calendar_sources": [],
+    }
+
+
 def make_rule(
     rule_id: str,
     *,

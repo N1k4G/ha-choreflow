@@ -1,0 +1,177 @@
+create_task:
+  name: Create task
+  description: Create a one-off ChoreFlow task.
+  fields:
+    title:
+      name: Title
+      description: Short task title.
+      required: true
+      selector:
+        text:
+    description:
+      name: Description
+      selector:
+        text:
+    room:
+      name: Room
+      selector:
+        text:
+    category:
+      name: Category
+      selector:
+        text:
+    importance:
+      name: Importance
+      selector:
+        select:
+          options: [high, normal, low]
+    due_date:
+      name: Due date
+      selector:
+        date:
+    visibility_mode:
+      name: Visibility mode
+      selector:
+        select:
+          options: [all_enabled_persons, selected_persons]
+    visibility_persons:
+      name: Visible to persons
+      selector:
+        entity:
+          domain: person
+          multiple: true
+    assignment_mode:
+      name: Assignment mode
+      selector:
+        select:
+          options: [random, assigned]
+    assignment_person:
+      name: Assigned person
+      selector:
+        entity:
+          domain: person
+
+update_task:
+  name: Update task
+  description: Update fields of an existing ChoreFlow task.
+  fields:
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        text:
+    title:
+      name: Title
+      selector:
+        text:
+    description:
+      name: Description
+      selector:
+        text:
+    room:
+      name: Room
+      selector:
+        text:
+    category:
+      name: Category
+      selector:
+        text:
+    importance:
+      name: Importance
+      selector:
+        select:
+          options: [high, normal, low]
+    due_date:
+      name: Due date
+      selector:
+        date:
+    visibility_mode:
+      name: Visibility mode
+      selector:
+        select:
+          options: [all_enabled_persons, selected_persons]
+    visibility_persons:
+      name: Visible to persons
+      selector:
+        entity:
+          domain: person
+          multiple: true
+    assignment_mode:
+      name: Assignment mode
+      selector:
+        select:
+          options: [random, assigned]
+    assignment_person:
+      name: Assigned person
+      selector:
+        entity:
+          domain: person
+
+delete_task:
+  name: Delete task
+  description: Delete a ChoreFlow task.
+  fields:
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        text:
+
+complete_task:
+  name: Complete task
+  description: Mark a task as completed and push the next one.
+  fields:
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        text:
+    person_entity:
+      name: Person
+      required: true
+      selector:
+        entity:
+          domain: person
+    source:
+      name: Completion source
+      description: Where the completion came from (push, dashboard, todo).
+      selector:
+        text:
+
+snooze_task:
+  name: Snooze task
+  description: Postpone a task's reminder without changing its due date.
+  fields:
+    task_id:
+      name: Task ID
+      required: true
+      selector:
+        text:
+    person_entity:
+      name: Person
+      required: true
+      selector:
+        entity:
+          domain: person
+
+start_daily_flow:
+  name: Start daily flow
+  description: Start the daily push chain for one or all persons.
+  fields:
+    person_entity:
+      name: Person
+      description: Optional; omit to start for all enabled persons.
+      selector:
+        entity:
+          domain: person
+
+send_next_task:
+  name: Send next task
+  description: Advance the push chain for a person (send the next task).
+  fields:
+    person_entity:
+      name: Person
+      required: true
+      selector:
+        entity:
+          domain: person

@@ -63,4 +63,4 @@ pytest --cov=custom_components/choreflow
 
 ## License
 
-[MIT](LICENSE) © 2026 Niklas Gorman
+[MIT](LICENSE) © 2026 N1k4G

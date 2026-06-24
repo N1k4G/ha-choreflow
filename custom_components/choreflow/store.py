@@ -345,6 +345,39 @@ class LogDatabase:
             rows = self._c.execute(sql, _COMPLETED_EVENT_TYPES).fetchall()
         return {row["k"]: row["c"] for row in rows if row["k"] is not None}
 
+    def completed_count_in_range(self, start_date: str, end_date: str) -> int:
+        """Completions whose date part falls within ``[start_date, end_date]``.
+
+        Dates are ``YYYY-MM-DD`` and compared on the timestamp's date prefix,
+        which is timezone-offset independent.
+        """
+        sql = (
+            "SELECT COUNT(*) AS c FROM log_events "
+            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND substr(timestamp, 1, 10) BETWEEN ? AND ?"
+        )
+        with self._lock:
+            row = self._c.execute(
+                sql, (*_COMPLETED_EVENT_TYPES, start_date, end_date)
+            ).fetchone()
+        return int(row["c"])
+
+    def completed_count_by_person_in_range(
+        self, start_date: str, end_date: str
+    ) -> dict[str, int]:
+        """Per-person completions within ``[start_date, end_date]`` (date part)."""
+        sql = (
+            "SELECT person_entity AS k, COUNT(*) AS c FROM log_events "
+            f"WHERE event_type IN ({_COMPLETED_PLACEHOLDERS}) "
+            "AND substr(timestamp, 1, 10) BETWEEN ? AND ? "
+            "GROUP BY person_entity"
+        )
+        with self._lock:
+            rows = self._c.execute(
+                sql, (*_COMPLETED_EVENT_TYPES, start_date, end_date)
+            ).fetchall()
+        return {row["k"]: row["c"] for row in rows if row["k"] is not None}
+
 
 # ===========================================================================
 # Async HA wrapper around LogDatabase — §3.3
@@ -400,3 +433,15 @@ class LogStore:
 
     async def async_completion_source_distribution(self) -> dict[str, int]:
         return await self._run(self._db.completion_source_distribution)
+
+    async def async_completed_count_in_range(
+        self, start_date: str, end_date: str
+    ) -> int:
+        return await self._run(self._db.completed_count_in_range, start_date, end_date)
+
+    async def async_completed_count_by_person_in_range(
+        self, start_date: str, end_date: str
+    ) -> dict[str, int]:
+        return await self._run(
+            self._db.completed_count_by_person_in_range, start_date, end_date
+        )

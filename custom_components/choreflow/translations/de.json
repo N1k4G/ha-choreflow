@@ -1,0 +1,233 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ChoreFlow",
+        "description": "Richte ChoreFlow zur Verwaltung von Haushaltsaufgaben ein.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "persons": {
+        "title": "Personen",
+        "description": "Wähle die Personen aus, die an ChoreFlow teilnehmen.",
+        "data": {
+          "enabled_persons": "Aktivierte Personen"
+        }
+      },
+      "person_config": {
+        "title": "Push-Einstellungen für {person}",
+        "description": "Wie {person} benachrichtigt werden soll.",
+        "data": {
+          "notify_service": "Benachrichtigungsdienst",
+          "presence_required": "Nur benachrichtigen, wenn zuhause",
+          "weekday_push_enabled": "Push unter der Woche",
+          "weekend_push_enabled": "Push am Wochenende"
+        }
+      },
+      "schedule": {
+        "title": "Zeitplan",
+        "description": "Wann die tägliche Push-Kette läuft.",
+        "data": {
+          "weekday_start_time": "Startzeit unter der Woche",
+          "weekend_start_time": "Startzeit am Wochenende",
+          "day_end_time": "Tagesende",
+          "max_tasks_per_person_per_day": "Maximale Aufgaben pro Person und Tag"
+        }
+      },
+      "todo": {
+        "title": "To-do-Synchronisation",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "data": {
+          "enabled": "To-do-Sync aktivieren",
+          "entity_id": "To-do-Liste",
+          "import_new_items": "Neue Einträge importieren",
+          "sync_completion_from_todo": "Erledigung von To-do übernehmen",
+          "sync_completion_to_todo": "Erledigung nach To-do übertragen",
+          "room": "Standardraum für importierte Aufgaben",
+          "category": "Standardkategorie für importierte Aufgaben",
+          "importance": "Standardwichtigkeit für importierte Aufgaben",
+          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben"
+        }
+      },
+      "calendar": {
+        "title": "Kalender-Synchronisation",
+        "description": "Optional high-Aufgaben aus ganztägigen Kalenderereignissen erzeugen (z. B. Müllabfuhr).",
+        "data": {
+          "enabled": "Kalender-Sync aktivieren",
+          "entity_id": "Kalender",
+          "summary_contains": "Ereignistitel enthält (kommagetrennt)",
+          "due_offset_days": "Fälligkeits-Versatz in Tagen (z. B. -1 = Vortag)"
+        }
+      }
+    },
+    "error": {
+      "no_persons": "Wähle mindestens eine Person aus.",
+      "notify_not_found": "Dieser Benachrichtigungsdienst existiert nicht. Bitte einen verfügbaren wählen."
+    },
+    "abort": {
+      "single_instance_allowed": "ChoreFlow ist bereits eingerichtet. Es wird nur eine Instanz unterstützt."
+    }
+  },
+  "options": {
+    "step": {
+      "persons": {
+        "title": "Personen",
+        "description": "Wähle die Personen aus, die an ChoreFlow teilnehmen.",
+        "data": {
+          "enabled_persons": "Aktivierte Personen"
+        }
+      },
+      "person_config": {
+        "title": "Push-Einstellungen für {person}",
+        "description": "Wie {person} benachrichtigt werden soll.",
+        "data": {
+          "notify_service": "Benachrichtigungsdienst",
+          "presence_required": "Nur benachrichtigen, wenn zuhause",
+          "weekday_push_enabled": "Push unter der Woche",
+          "weekend_push_enabled": "Push am Wochenende"
+        }
+      },
+      "schedule": {
+        "title": "Zeitplan",
+        "description": "Wann die tägliche Push-Kette läuft.",
+        "data": {
+          "weekday_start_time": "Startzeit unter der Woche",
+          "weekend_start_time": "Startzeit am Wochenende",
+          "day_end_time": "Tagesende",
+          "max_tasks_per_person_per_day": "Maximale Aufgaben pro Person und Tag"
+        }
+      },
+      "todo": {
+        "title": "To-do-Synchronisation",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "data": {
+          "enabled": "To-do-Sync aktivieren",
+          "entity_id": "To-do-Liste",
+          "import_new_items": "Neue Einträge importieren",
+          "sync_completion_from_todo": "Erledigung von To-do übernehmen",
+          "sync_completion_to_todo": "Erledigung nach To-do übertragen",
+          "room": "Standardraum für importierte Aufgaben",
+          "category": "Standardkategorie für importierte Aufgaben",
+          "importance": "Standardwichtigkeit für importierte Aufgaben",
+          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben"
+        }
+      },
+      "calendar": {
+        "title": "Kalender-Synchronisation",
+        "description": "Optional high-Aufgaben aus ganztägigen Kalenderereignissen erzeugen (z. B. Müllabfuhr).",
+        "data": {
+          "enabled": "Kalender-Sync aktivieren",
+          "entity_id": "Kalender",
+          "summary_contains": "Ereignistitel enthält (kommagetrennt)",
+          "due_offset_days": "Fälligkeits-Versatz in Tagen (z. B. -1 = Vortag)"
+        }
+      }
+    },
+    "error": {
+      "no_persons": "Wähle mindestens eine Person aus.",
+      "notify_not_found": "Dieser Benachrichtigungsdienst existiert nicht. Bitte einen verfügbaren wählen."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "open_tasks": { "name": "Offene Aufgaben" },
+      "due_tasks": { "name": "Fällige Aufgaben" },
+      "overdue_tasks": { "name": "Überfällige Aufgaben" },
+      "completed_today": { "name": "Heute erledigt" },
+      "completed_this_week": { "name": "Diese Woche erledigt" },
+      "active_chains": { "name": "Aktive Ketten" },
+      "person_open_tasks": { "name": "{person} offene Aufgaben" },
+      "person_due_tasks": { "name": "{person} fällige Aufgaben" },
+      "person_completed_today": { "name": "{person} heute erledigt" },
+      "person_tasks_remaining_today": { "name": "{person} heute verbleibend" }
+    },
+    "binary_sensor": {
+      "person_has_due_tasks": { "name": "{person} hat fällige Aufgaben" },
+      "person_chain_active": { "name": "{person} Kette aktiv" }
+    }
+  },
+  "issues": {
+    "missing_person": {
+      "title": "ChoreFlow-Person nicht verfügbar",
+      "description": "Die konfigurierte Person {person} existiert nicht mehr. ChoreFlow benachrichtigt sie nicht, bis sie wiederhergestellt oder aus der Konfiguration entfernt wird."
+    },
+    "missing_notify_service": {
+      "title": "ChoreFlow-Benachrichtigungsdienst fehlt",
+      "description": "Der für {person} konfigurierte Benachrichtigungsdienst {service} existiert nicht. Pushes an diese Person werden ausgesetzt, bis er verfügbar ist."
+    }
+  },
+  "services": {
+    "create_task": {
+      "name": "Aufgabe erstellen",
+      "description": "Erstellt eine einmalige ChoreFlow-Aufgabe.",
+      "fields": {
+        "title": { "name": "Titel", "description": "Kurzer Aufgabentitel." },
+        "description": { "name": "Beschreibung", "description": "Optionale Details." },
+        "room": { "name": "Raum", "description": "Raum der Aufgabe." },
+        "category": { "name": "Kategorie", "description": "Aufgabenkategorie." },
+        "importance": { "name": "Wichtigkeit", "description": "high, normal oder low." },
+        "due_date": { "name": "Fälligkeitsdatum", "description": "Wann die Aufgabe fällig ist." },
+        "visibility_mode": { "name": "Sichtbarkeit", "description": "Wer die Aufgabe sehen darf." },
+        "visibility_persons": { "name": "Sichtbar für Personen", "description": "Personen bei ausgewählter Sichtbarkeit." },
+        "assignment_mode": { "name": "Zuständigkeit", "description": "random oder assigned." },
+        "assignment_person": { "name": "Zugewiesene Person", "description": "Person bei fester Zuständigkeit." }
+      }
+    },
+    "update_task": {
+      "name": "Aufgabe ändern",
+      "description": "Ändert Felder einer bestehenden ChoreFlow-Aufgabe.",
+      "fields": {
+        "task_id": { "name": "Aufgaben-ID", "description": "ID der zu ändernden Aufgabe." },
+        "title": { "name": "Titel", "description": "Kurzer Aufgabentitel." },
+        "description": { "name": "Beschreibung", "description": "Optionale Details." },
+        "room": { "name": "Raum", "description": "Raum der Aufgabe." },
+        "category": { "name": "Kategorie", "description": "Aufgabenkategorie." },
+        "importance": { "name": "Wichtigkeit", "description": "high, normal oder low." },
+        "due_date": { "name": "Fälligkeitsdatum", "description": "Wann die Aufgabe fällig ist." },
+        "visibility_mode": { "name": "Sichtbarkeit", "description": "Wer die Aufgabe sehen darf." },
+        "visibility_persons": { "name": "Sichtbar für Personen", "description": "Personen bei ausgewählter Sichtbarkeit." },
+        "assignment_mode": { "name": "Zuständigkeit", "description": "random oder assigned." },
+        "assignment_person": { "name": "Zugewiesene Person", "description": "Person bei fester Zuständigkeit." }
+      }
+    },
+    "delete_task": {
+      "name": "Aufgabe löschen",
+      "description": "Löscht eine ChoreFlow-Aufgabe.",
+      "fields": {
+        "task_id": { "name": "Aufgaben-ID", "description": "ID der zu löschenden Aufgabe." }
+      }
+    },
+    "complete_task": {
+      "name": "Aufgabe erledigen",
+      "description": "Markiert eine Aufgabe als erledigt und pusht die nächste.",
+      "fields": {
+        "task_id": { "name": "Aufgaben-ID", "description": "ID der Aufgabe." },
+        "person_entity": { "name": "Person", "description": "Person, die erledigt." },
+        "source": { "name": "Erledigungsquelle", "description": "push, dashboard oder todo." }
+      }
+    },
+    "snooze_task": {
+      "name": "Aufgabe zurückstellen",
+      "description": "Stellt die Erinnerung zurück, ohne das Fälligkeitsdatum zu ändern.",
+      "fields": {
+        "task_id": { "name": "Aufgaben-ID", "description": "ID der Aufgabe." },
+        "person_entity": { "name": "Person", "description": "Person, die zurückstellt." }
+      }
+    },
+    "start_daily_flow": {
+      "name": "Tagesablauf starten",
+      "description": "Startet die tägliche Push-Kette für eine oder alle Personen.",
+      "fields": {
+        "person_entity": { "name": "Person", "description": "Optional; leer lassen für alle aktivierten Personen." }
+      }
+    },
+    "send_next_task": {
+      "name": "Nächste Aufgabe senden",
+      "description": "Setzt die Push-Kette einer Person fort.",
+      "fields": {
+        "person_entity": { "name": "Person", "description": "Person, deren Kette fortgesetzt wird." }
+      }
+    }
+  }
+}
