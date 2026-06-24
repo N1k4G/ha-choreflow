@@ -155,6 +155,14 @@
     "missing_notify_service": {
       "title": "ChoreFlow-Benachrichtigungsdienst fehlt",
       "description": "Der für {person} konfigurierte Benachrichtigungsdienst {service} existiert nicht. Pushes an diese Person werden ausgesetzt, bis er verfügbar ist."
+    },
+    "todo_unavailable": {
+      "title": "ChoreFlow-To-do-Liste nicht verfügbar",
+      "description": "Die zugeordnete To-do-Liste {entity_id} ist nicht verfügbar. Die Synchronisation ist ausgesetzt und wird automatisch fortgesetzt, sobald sie wieder verfügbar ist."
+    },
+    "calendar_unavailable": {
+      "title": "ChoreFlow-Kalender nicht verfügbar",
+      "description": "Der Kalender {entity_id} ist nicht verfügbar. Bestehende Kalenderaufgaben bleiben erhalten; die Synchronisation wird automatisch fortgesetzt, sobald er wieder verfügbar ist."
     }
   },
   "services": {
@@ -167,6 +175,7 @@
         "room": { "name": "Raum", "description": "Raum der Aufgabe." },
         "category": { "name": "Kategorie", "description": "Aufgabenkategorie." },
         "importance": { "name": "Wichtigkeit", "description": "high, normal oder low." },
+        "estimated_duration_minutes": { "name": "Geschätzte Dauer", "description": "Geschätzte Aufgabendauer in Minuten." },
         "due_date": { "name": "Fälligkeitsdatum", "description": "Wann die Aufgabe fällig ist." },
         "visibility_mode": { "name": "Sichtbarkeit", "description": "Wer die Aufgabe sehen darf." },
         "visibility_persons": { "name": "Sichtbar für Personen", "description": "Personen bei ausgewählter Sichtbarkeit." },
@@ -184,6 +193,7 @@
         "room": { "name": "Raum", "description": "Raum der Aufgabe." },
         "category": { "name": "Kategorie", "description": "Aufgabenkategorie." },
         "importance": { "name": "Wichtigkeit", "description": "high, normal oder low." },
+        "estimated_duration_minutes": { "name": "Geschätzte Dauer", "description": "Geschätzte Aufgabendauer in Minuten." },
         "due_date": { "name": "Fälligkeitsdatum", "description": "Wann die Aufgabe fällig ist." },
         "visibility_mode": { "name": "Sichtbarkeit", "description": "Wer die Aufgabe sehen darf." },
         "visibility_persons": { "name": "Sichtbar für Personen", "description": "Personen bei ausgewählter Sichtbarkeit." },
@@ -227,6 +237,49 @@
       "description": "Setzt die Push-Kette einer Person fort.",
       "fields": {
         "person_entity": { "name": "Person", "description": "Person, deren Kette fortgesetzt wird." }
+      }
+    },
+    "sync_todo": {
+      "name": "To-do synchronisieren",
+      "description": "Führt eine manuelle To-do-Synchronisation aus (Import + Erledigt-Sync).",
+      "fields": {
+        "entity_id": { "name": "To-do-Liste", "description": "Optional; sonst wird die konfigurierte Liste verwendet." }
+      }
+    },
+    "rebuild_calendar_tasks": {
+      "name": "Kalenderaufgaben neu aufbauen",
+      "description": "Liest die konfigurierten Kalender neu ein und gleicht kalenderbasierte Aufgaben ab."
+    },
+    "export_log": {
+      "name": "Log exportieren",
+      "description": "Exportiert das vollständige Ereignis-Log in eine Datei unter choreflow_exports/.",
+      "fields": {
+        "format": { "name": "Format", "description": "Exportformat (json oder csv)." }
+      }
+    },
+    "get_tasks": {
+      "name": "Aufgaben abrufen",
+      "description": "Gibt eine gefilterte, paginierte Liste von ChoreFlow-Aufgaben zurück.",
+      "fields": {
+        "status": { "name": "Status", "description": "Aufgabenstatus für die Abfrage." },
+        "person_entity": { "name": "Person", "description": "Person für Sichtbarkeits- oder Zuweisungsfilter." },
+        "person_scope": { "name": "Personenfilter", "description": "Nach sichtbar oder fest zugewiesen filtern." },
+        "room": { "name": "Raum", "description": "Exakter Raumfilter." },
+        "category": { "name": "Kategorie", "description": "Exakter Kategoriefilter." },
+        "limit": { "name": "Limit", "description": "Maximale Anzahl Einträge (1-100)." },
+        "offset": { "name": "Offset", "description": "Anzahl zu überspringender Treffer." }
+      }
+    },
+    "get_history": {
+      "name": "Historie abrufen",
+      "description": "Gibt gefilterte, paginierte ChoreFlow-Logereignisse zurück.",
+      "fields": {
+        "event_types": { "name": "Ereignistypen", "description": "Zurückzugebende Logereignistypen." },
+        "person_entity": { "name": "Person", "description": "Exakter Personenfilter." },
+        "room": { "name": "Raum", "description": "Exakter Raumfilter." },
+        "category": { "name": "Kategorie", "description": "Exakter Kategoriefilter." },
+        "limit": { "name": "Limit", "description": "Maximale Anzahl Einträge (1-100)." },
+        "offset": { "name": "Offset", "description": "Anzahl zu überspringender Treffer." }
       }
     }
   }

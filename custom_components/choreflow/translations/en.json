@@ -155,6 +155,14 @@
     "missing_notify_service": {
       "title": "ChoreFlow notify service missing",
       "description": "The notify service {service} configured for {person} does not exist. Pushes to this person are skipped until it is available."
+    },
+    "todo_unavailable": {
+      "title": "ChoreFlow to-do list unavailable",
+      "description": "The mapped to-do list {entity_id} is unavailable. Sync is suspended and resumes automatically once it is back."
+    },
+    "calendar_unavailable": {
+      "title": "ChoreFlow calendar unavailable",
+      "description": "The calendar {entity_id} is unavailable. Existing calendar tasks are kept and sync resumes automatically once it is back."
     }
   },
   "services": {
@@ -167,6 +175,7 @@
         "room": { "name": "Room", "description": "Room the task belongs to." },
         "category": { "name": "Category", "description": "Task category." },
         "importance": { "name": "Importance", "description": "high, normal or low." },
+        "estimated_duration_minutes": { "name": "Estimated duration", "description": "Estimated task duration in minutes." },
         "due_date": { "name": "Due date", "description": "When the task is due." },
         "visibility_mode": { "name": "Visibility mode", "description": "Who can see the task." },
         "visibility_persons": { "name": "Visible to persons", "description": "Persons for selected visibility." },
@@ -184,6 +193,7 @@
         "room": { "name": "Room", "description": "Room the task belongs to." },
         "category": { "name": "Category", "description": "Task category." },
         "importance": { "name": "Importance", "description": "high, normal or low." },
+        "estimated_duration_minutes": { "name": "Estimated duration", "description": "Estimated task duration in minutes." },
         "due_date": { "name": "Due date", "description": "When the task is due." },
         "visibility_mode": { "name": "Visibility mode", "description": "Who can see the task." },
         "visibility_persons": { "name": "Visible to persons", "description": "Persons for selected visibility." },
@@ -227,6 +237,49 @@
       "description": "Advance the push chain for a person.",
       "fields": {
         "person_entity": { "name": "Person", "description": "Person whose chain to advance." }
+      }
+    },
+    "sync_todo": {
+      "name": "Sync to-do",
+      "description": "Run a manual to-do synchronisation (import + completion sync).",
+      "fields": {
+        "entity_id": { "name": "To-do list", "description": "Optional; the configured list is used if omitted." }
+      }
+    },
+    "rebuild_calendar_tasks": {
+      "name": "Rebuild calendar tasks",
+      "description": "Re-read the configured calendars and reconcile calendar-based tasks."
+    },
+    "export_log": {
+      "name": "Export log",
+      "description": "Export the full event log to a file under choreflow_exports/.",
+      "fields": {
+        "format": { "name": "Format", "description": "Export format (json or csv)." }
+      }
+    },
+    "get_tasks": {
+      "name": "Get tasks",
+      "description": "Return a filtered, paginated collection of ChoreFlow tasks.",
+      "fields": {
+        "status": { "name": "Status", "description": "Task status to return." },
+        "person_entity": { "name": "Person", "description": "Person used for visibility or assignment filtering." },
+        "person_scope": { "name": "Person scope", "description": "Filter tasks visible to or assigned to the person." },
+        "room": { "name": "Room", "description": "Exact room filter." },
+        "category": { "name": "Category", "description": "Exact category filter." },
+        "limit": { "name": "Limit", "description": "Maximum rows to return (1-100)." },
+        "offset": { "name": "Offset", "description": "Number of matching rows to skip." }
+      }
+    },
+    "get_history": {
+      "name": "Get history",
+      "description": "Return filtered, paginated ChoreFlow log events.",
+      "fields": {
+        "event_types": { "name": "Event types", "description": "Log event types to return." },
+        "person_entity": { "name": "Person", "description": "Exact person filter." },
+        "room": { "name": "Room", "description": "Exact room filter." },
+        "category": { "name": "Category", "description": "Exact category filter." },
+        "limit": { "name": "Limit", "description": "Maximum rows to return (1-100)." },
+        "offset": { "name": "Offset", "description": "Number of matching rows to skip." }
       }
     }
   }

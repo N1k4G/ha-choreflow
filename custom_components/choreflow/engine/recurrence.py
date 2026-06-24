@@ -86,6 +86,7 @@ def due_instances_for(
                 room=rule.room,
                 category=rule.category,
                 importance=rule.importance,
+                estimated_duration_minutes=rule.estimated_duration_minutes,
                 urgency_type=rule.urgency_type,
                 due_date=on_date,
                 deadline=rule.deadline,

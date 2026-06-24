@@ -189,3 +189,55 @@ def test_completion_source_distribution(db: LogDatabase) -> None:
 def test_unsupported_group_column_rejected(db: LogDatabase) -> None:
     with pytest.raises(ValueError, match="Unsupported group column"):
         db._completed_group_count("title; DROP TABLE log_events")
+
+
+def test_query_history_filters_and_paginates(db: LogDatabase) -> None:
+    _seed(db)
+    rows, total = db.query_history(
+        [EVENT_TASK_COMPLETED, EVENT_TASK_COMPLETED_FROM_TODO],
+        "person.niklas",
+        None,
+        None,
+        1,
+        0,
+    )
+    assert total == 2
+    assert [row["event_id"] for row in rows] == ["e2"]
+
+    rows, total = db.query_history(
+        [EVENT_TASK_COMPLETED, EVENT_TASK_COMPLETED_FROM_TODO],
+        "person.niklas",
+        None,
+        None,
+        1,
+        1,
+    )
+    assert total == 2
+    assert [row["event_id"] for row in rows] == ["e1"]
+
+
+def test_query_history_combines_room_and_category_filters(
+    db: LogDatabase,
+) -> None:
+    _seed(db)
+    rows, total = db.query_history(
+        [EVENT_TASK_COMPLETED, EVENT_TASK_COMPLETED_FROM_TODO],
+        None,
+        "Bad",
+        "Putzen",
+        10,
+        0,
+    )
+    assert total == 2
+    assert [row["event_id"] for row in rows] == ["e3", "e1"]
+
+    empty, total = db.query_history(
+        [EVENT_TASK_COMPLETED],
+        None,
+        "Bad",
+        "Putzen",
+        10,
+        99,
+    )
+    assert total == 1
+    assert empty == []

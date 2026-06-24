@@ -54,6 +54,7 @@ def _sample_instance() -> TaskInstance:
         room="Bad",
         category="Putzen",
         importance=Importance.NORMAL,
+        estimated_duration_minutes=5,
         urgency_type=None,
         due_date=date(2026, 6, 18),
         deadline=None,

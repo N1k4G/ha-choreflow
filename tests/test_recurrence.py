@@ -104,11 +104,18 @@ def test_disabled_rule_skipped() -> None:
 
 
 def test_generated_instance_fields() -> None:
-    rule = make_rule("r", room="Küche", recurrence_interval=1, created_date=_MON)
+    rule = make_rule(
+        "r",
+        room="Küche",
+        estimated_duration_minutes=5,
+        recurrence_interval=1,
+        created_date=_MON,
+    )
     [inst] = due_instances_for([rule], _MON, [], _NOW)
     assert inst.rule_id == "r"
     assert inst.room == "Küche"
     assert inst.due_date == _MON
     assert inst.status == TaskStatus.OPEN
     assert inst.source == TaskSource.RULE
+    assert inst.estimated_duration_minutes == 5
     assert inst.created_at == _NOW

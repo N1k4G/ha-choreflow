@@ -7,11 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (P0 — Plan & scaffold)
-- HACS-compatible repository layout and metadata (`manifest.json`, `hacs.json`,
-  `pyproject.toml`) targeting Home Assistant 2026.6.
-- `const.py` with domain, config/option keys, defaults, log event types and the
-  selector scoring weights (single source of truth).
-- Config-entry lifecycle skeleton (`__init__.py`) and a minimal single-instance
-  config flow placeholder.
-- CI pipelines: hassfest, HACS validation, ruff, mypy, pytest with coverage.
+HACS-compatible, config-flow-only integration targeting Home Assistant 2026.6,
+CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
+
+### Added — MVP 0.1
+- Multi-step config flow and options flow (persons, per-person notify targets,
+  schedule, to-do and calendar setup); German & English UI.
+- Data model and two-tier persistence: HA `Store` JSON state + own SQLite event
+  log (independent of the recorder) with evaluation queries.
+- Pure, HA-free engine: recurrence, urgency scoring/selection (top-5, room
+  bundling, `high` anti-starvation), reservations, schedule windows.
+- Presence-aware push chain: start times, catch-up, day end, daily limit; one
+  task per push with self-handled Done/Snooze/Open-dashboard actions.
+- Global and per-person sensors + binary sensors; logbook, diagnostics, repairs.
+- Services: `create_task`, `update_task`, `delete_task`, `complete_task`,
+  `snooze_task`, `start_daily_flow`, `send_next_task`.
+
+### Added — MVP 0.2
+- To-do synchronisation: import items, bidirectional completion sync, dedup,
+  graceful handling of an unavailable list (`sync_todo` service).
+- Calendar tasks: all-day events → `high` tasks due the day before, with
+  change/delete reconciliation and dedup (`rebuild_calendar_tasks` service).
+- `export_log` service (JSON/CSV).
+
+### Added - Dashboard API
+- Versioned, compact open-task sensor payload with stable task IDs and
+  truncation metadata.
+- Paginated `get_tasks` and `get_history` response services for dashboard
+  filters and history.
+- Detailed per-person daily chain attributes.
+- Estimated duration propagated from task rules to task instances and CRUD.
+- Dashboard actions validate visibility, assignment and enabled persons.
+
+### Added - Lovelace card
+- Bundled `choreflow-card` Lovelace custom card (Lit/TypeScript, source in
+  `card/`), auto-registered as a frontend resource — no manual setup. The card
+  is decoupled from the backend (uses only the documented service/sensor
+  contract) and can later be split into its own HACS frontend repository.

@@ -226,3 +226,10 @@ async def test_options_flow_updates_schedule(
     assert entry.options["weekday_start_time"] == "18:00"
     assert entry.options["max_tasks_per_person_per_day"] == 3
     assert entry.options["person_settings"][_PERSON]["weekend_push_enabled"] is False
+
+    # Saving options triggers a reload; let it finish so the reloaded
+    # coordinator's refresh-interval timer is cancelled cleanly at teardown
+    # (otherwise it lingers past the test).
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

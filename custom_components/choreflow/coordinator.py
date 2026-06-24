@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from random import Random
@@ -21,9 +22,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CARD_API_VERSION,
     DEFAULT_IMPORT_CATEGORY,
     DEFAULT_IMPORT_ROOM,
     DOMAIN,
+    EVENT_CALENDAR_TASK_CREATED,
+    EVENT_CALENDAR_TASK_REMOVED,
     EVENT_TASK_COMPLETED,
     EVENT_TASK_COMPLETED_FROM_TODO,
     EVENT_TASK_CREATED,
@@ -32,6 +36,7 @@ from .const import (
     EVENT_TASK_MISSED_NO_PRESENCE,
     EVENT_TASK_NOTIFIED,
     EVENT_TASK_SNOOZED,
+    EVENT_TASK_SYNCED_FROM_TODO,
     EVENT_TASK_UPDATED,
     LOGBOOK_EVENT,
     MAX_SENSOR_ATTR_TASKS,
@@ -81,6 +86,7 @@ class PersonStats:
     remaining_today: int = 0
     has_due: bool = False
     chain_active: bool = False
+    chain_status: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -100,6 +106,60 @@ def _visible_to(instance: TaskInstance, person: str) -> bool:
     if instance.visibility_mode == VisibilityMode.SELECTED_PERSONS:
         return person in instance.visibility_persons
     return True
+
+
+def task_payload(instance: TaskInstance) -> dict[str, Any]:
+    """Return the versioned card-facing representation of a task."""
+    return {
+        "task_id": instance.id,
+        "task_rule_id": instance.rule_id,
+        "title": instance.title,
+        "description": instance.description,
+        "room": instance.room,
+        "category": instance.category,
+        "importance": instance.importance.value,
+        "estimated_duration_minutes": instance.estimated_duration_minutes,
+        "due_date": instance.due_date.isoformat() if instance.due_date else None,
+        "deadline": instance.deadline.isoformat() if instance.deadline else None,
+        "status": instance.status.value,
+        "source": instance.source.value,
+        "visibility_mode": instance.visibility_mode.value,
+        "visibility_persons": list(instance.visibility_persons),
+        "assignment_mode": instance.assignment_mode.value,
+        "assignment_person": instance.assignment_person,
+        "created_at": instance.created_at.isoformat(),
+        "completed_at": (
+            instance.completed_at.isoformat() if instance.completed_at else None
+        ),
+        "completed_by": instance.completed_by,
+        "completion_source": instance.completion_source,
+    }
+
+
+def task_preview_payload(instance: TaskInstance) -> dict[str, Any]:
+    """Return the bounded sensor payload used for quick dashboard rendering."""
+    return {
+        "task_id": instance.id,
+        "title": instance.title,
+        "room": instance.room,
+        "category": instance.category,
+        "importance": instance.importance.value,
+        "estimated_duration_minutes": instance.estimated_duration_minutes,
+        "due_date": instance.due_date.isoformat() if instance.due_date else None,
+    }
+
+
+def _ordered_open_tasks(
+    instances: list[TaskInstance], today: date
+) -> list[TaskInstance]:
+    """Order all open tasks without applying the push pool's due-date filter."""
+    urgent = build_urgency_pool(instances, today)
+    urgent_ids = {item.id for item in urgent}
+    future = sorted(
+        (item for item in instances if item.id not in urgent_ids),
+        key=lambda item: (item.due_date or date.max, item.id),
+    )
+    return [*urgent, *future]
 
 
 class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
@@ -129,6 +189,16 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         self._rng = rng or Random()
         # Per-person consecutive skip counters for high anti-starvation (§13.4.5).
         self._high_skips: dict[str, dict[str, int]] = {}
+        # Listeners notified after a user completion (e.g. ChoreFlow → to-do).
+        self._completion_listeners: list[
+            Callable[[TaskInstance, str], Awaitable[None]]
+        ] = []
+
+    def add_completion_listener(
+        self, listener: Callable[[TaskInstance, str], Awaitable[None]]
+    ) -> None:
+        """Register a callback invoked after a user task completion (§6)."""
+        self._completion_listeners.append(listener)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -370,6 +440,8 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             overdue_days=overdue_days,
             decision_reason="completed",
         )
+        for listener in self._completion_listeners:
+            await listener(inst, source)
         await self.async_advance_chain(person)
         await self._persist_and_refresh()
 
@@ -413,6 +485,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             room=fields.get("room", DEFAULT_IMPORT_ROOM),
             category=fields.get("category", DEFAULT_IMPORT_CATEGORY),
             importance=Importance(fields.get("importance", Importance.NORMAL.value)),
+            estimated_duration_minutes=fields.get("estimated_duration_minutes"),
             urgency_type=None,
             due_date=fields.get("due_date"),
             deadline=None,
@@ -436,12 +509,66 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         await self._persist_and_refresh()
         return task_id
 
+    def query_tasks(
+        self,
+        *,
+        status: str,
+        person_entity: str | None,
+        person_scope: str,
+        room: str | None,
+        category: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        """Return a filtered, paginated task collection for dashboard clients."""
+        instances = list(self.store.task_instances.values())
+        if status != "all":
+            instances = [item for item in instances if item.status.value == status]
+        if person_entity is not None:
+            if person_scope == "assigned":
+                instances = [
+                    item
+                    for item in instances
+                    if item.assignment_person == person_entity
+                ]
+            else:
+                instances = [
+                    item for item in instances if _visible_to(item, person_entity)
+                ]
+        if room is not None:
+            instances = [item for item in instances if item.room == room]
+        if category is not None:
+            instances = [item for item in instances if item.category == category]
+
+        if status == TaskStatus.OPEN.value:
+            instances = _ordered_open_tasks(instances, self.clock.today())
+        else:
+            instances.sort(key=lambda item: (item.created_at, item.id), reverse=True)
+
+        total = len(instances)
+        items = instances[offset : offset + limit]
+        return {
+            "api_version": CARD_API_VERSION,
+            "items": [task_payload(item) for item in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(items) < total,
+        }
+
     async def async_update_task(self, task_id: str, changes: dict[str, Any]) -> None:
         """Update mutable fields of an existing task (§19)."""
         inst = self.store.task_instances.get(task_id)
         if inst is None:
             return
-        for field_name in ("title", "description", "room", "category", "due_date"):
+        for field_name in (
+            "title",
+            "description",
+            "room",
+            "category",
+            "due_date",
+            "estimated_duration_minutes",
+        ):
             if field_name in changes:
                 setattr(inst, field_name, changes[field_name])
         if "importance" in changes:
@@ -468,6 +595,62 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         self._book.release(task_id)
         await self._async_log_event(
             EVENT_TASK_DELETED, task=inst, decision_reason="manual delete"
+        )
+        await self._persist_and_refresh()
+
+    # ------------------------------------------------------------------
+    # Sync helpers (to-do / calendar sources)
+    # ------------------------------------------------------------------
+    async def async_register_imported_task(self, inst: TaskInstance) -> None:
+        """Add an externally imported task and log its origin (§6)."""
+        self.store.task_instances[inst.id] = inst
+        await self._async_log_event(
+            EVENT_TASK_SYNCED_FROM_TODO,
+            task=inst,
+            decision_reason="imported from to-do",
+        )
+        await self._persist_and_refresh()
+
+    async def async_complete_from_external(self, task_id: str, source: str) -> None:
+        """Complete a task from an external source (no person, no chain) (§16.4)."""
+        inst = self.store.task_instances.get(task_id)
+        if inst is None or inst.status != TaskStatus.OPEN:
+            return
+        today = self.clock.today()
+        inst.status = TaskStatus.COMPLETED
+        inst.completed_at = self.clock.now()
+        inst.completion_source = source
+        overdue_days = max(0, (today - inst.due_date).days) if inst.due_date else 0
+        self._book.release(task_id)
+        await self._async_log_event(
+            EVENT_TASK_COMPLETED_FROM_TODO,
+            task=inst,
+            completion_source=source,
+            overdue_days=overdue_days,
+            decision_reason="completed via to-do",
+        )
+        await self._persist_and_refresh()
+
+    async def async_add_calendar_task(self, inst: TaskInstance) -> None:
+        """Add a calendar-generated task and log its creation (§7/§15.4)."""
+        self.store.task_instances[inst.id] = inst
+        await self._async_log_event(
+            EVENT_CALENDAR_TASK_CREATED,
+            task=inst,
+            decision_reason="created from calendar event",
+        )
+        await self._persist_and_refresh()
+
+    async def async_remove_calendar_task(self, task_id: str) -> None:
+        """Remove an open calendar task whose event disappeared (§15.4)."""
+        inst = self.store.task_instances.pop(task_id, None)
+        if inst is None:
+            return
+        self._book.release(task_id)
+        await self._async_log_event(
+            EVENT_CALENDAR_TASK_REMOVED,
+            task=inst,
+            decision_reason="calendar event removed",
         )
         await self._persist_and_refresh()
 
@@ -566,16 +749,10 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         due = [i for i in open_instances if i.due_date and i.due_date <= today]
         overdue = [i for i in open_instances if i.due_date and i.due_date < today]
 
-        ordered = build_urgency_pool(open_instances, today)
+        ordered = _ordered_open_tasks(open_instances, today)
         open_task_list = [
-            {
-                "title": i.title,
-                "room": i.room,
-                "category": i.category,
-                "importance": i.importance.value,
-                "due_date": i.due_date.isoformat() if i.due_date else None,
-            }
-            for i in ordered[:MAX_SENSOR_ATTR_TASKS]
+            task_preview_payload(instance)
+            for instance in ordered[:MAX_SENSOR_ATTR_TASKS]
         ]
 
         per_person: dict[str, PersonStats] = {}
@@ -586,6 +763,11 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             chain = self.store.push_chain_states.get(f"{person}|{today.isoformat()}")
             chain_active = bool(chain and chain.active)
             sent = chain.tasks_sent_count if chain else 0
+            current_task = (
+                self.store.task_instances.get(chain.current_task_id)
+                if chain and chain.current_task_id
+                else None
+            )
             if chain_active:
                 active_chains += 1
             per_person[person] = PersonStats(
@@ -597,6 +779,25 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
                 ),
                 has_due=len(p_due) > 0,
                 chain_active=chain_active,
+                chain_status={
+                    "api_version": CARD_API_VERSION,
+                    "person_entity": person,
+                    "date": today.isoformat(),
+                    "started": bool(chain and chain.started),
+                    "active": chain_active,
+                    "pending_catchup": bool(chain and chain.pending_catchup),
+                    "current_task_id": chain.current_task_id if chain else None,
+                    "current_task_title": (
+                        current_task.title if current_task is not None else None
+                    ),
+                    "tasks_sent_today": sent,
+                    "tasks_completed_today": completed_today_by_person.get(person, 0),
+                    "daily_limit": self.settings.max_tasks_per_person_per_day,
+                    "remaining_today": max(
+                        0, self.settings.max_tasks_per_person_per_day - sent
+                    ),
+                    "ended_reason": chain.ended_reason if chain else None,
+                },
             )
 
         return ChoreFlowData(

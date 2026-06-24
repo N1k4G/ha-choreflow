@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -100,3 +101,14 @@ class PersonBinarySensor(CoordinatorEntity[ChoreFlowCoordinator], BinarySensorEn
         if stats is None:
             return None
         return self.entity_description.value_fn(stats)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose detailed daily chain state on the chain sensor."""
+        if self.entity_description.key != "chain_active":
+            return {}
+        data = self.coordinator.data
+        if data is None:
+            return {}
+        stats = data.per_person.get(self._person)
+        return dict(stats.chain_status) if stats is not None else {}

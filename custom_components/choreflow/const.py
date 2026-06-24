@@ -23,6 +23,7 @@ DEFAULT_NAME: Final = "ChoreFlow"
 # Persistence (§3)
 # ---------------------------------------------------------------------------
 STORAGE_VERSION: Final = 1
+STORAGE_MINOR_VERSION: Final = 2
 # One Store per config entry: choreflow.<entry_id>
 STORAGE_KEY_TEMPLATE: Final = DOMAIN + ".{entry_id}"
 # Debounce window (seconds) for bundled Store writes via the coordinator (§3.2).
@@ -93,9 +94,23 @@ DEFAULT_IMPORT_ASSIGNMENT_MODE: Final = "random"
 DEFAULT_CALENDAR_DUE_OFFSET_DAYS: Final = -1
 # Look-ahead window when reading calendar events (§7).
 DEFAULT_CALENDAR_PREVIEW_DAYS: Final = 14
+# Defaults for calendar-generated tasks (config flow captures only the match).
+DEFAULT_CALENDAR_ROOM: Final = "Außenbereich"
+DEFAULT_CALENDAR_CATEGORY: Final = "Müll"
+# Daily calendar reconcile time (§7 — once per day, early).
+CALENDAR_RECONCILE_HOUR: Final = 3
+CALENDAR_RECONCILE_MINUTE: Final = 30
 
 # Cap list-valued sensor attributes to keep HA state small (§5.6, Lastenheft §18.3).
 MAX_SENSOR_ATTR_TASKS: Final = 30
+CARD_API_VERSION: Final = 1
+DEFAULT_QUERY_LIMIT: Final = 50
+MAX_QUERY_LIMIT: Final = 100
+
+# Bundled Lovelace card auto-registration (frontend.py). The card is built from
+# the standalone project in ``card/`` and shipped as ``www/<CARD_FILENAME>``.
+CARD_FILENAME: Final = "choreflow-card.js"
+CARD_URL: Final = "/choreflow/choreflow-card.js"
 
 # ---------------------------------------------------------------------------
 # Notification actions (§5.4)
@@ -205,6 +220,8 @@ SERVICE_SEND_NEXT_TASK: Final = "send_next_task"
 SERVICE_REBUILD_CALENDAR_TASKS: Final = "rebuild_calendar_tasks"
 SERVICE_SYNC_TODO: Final = "sync_todo"
 SERVICE_EXPORT_LOG: Final = "export_log"
+SERVICE_GET_TASKS: Final = "get_tasks"
+SERVICE_GET_HISTORY: Final = "get_history"
 
 # Common service field names.
 ATTR_TASK_ID: Final = "task_id"
@@ -220,6 +237,8 @@ DATA_COORDINATOR: Final = "coordinator"
 DATA_STORE: Final = "store"
 DATA_LOG_STORE: Final = "log_store"
 DATA_SETTINGS: Final = "settings"
+DATA_TODO_SYNC: Final = "todo_sync"
+DATA_CALENDAR_SOURCE: Final = "calendar_source"
 
 # ---------------------------------------------------------------------------
 # Device metadata (groups entities under one ChoreFlow device, §5.6)

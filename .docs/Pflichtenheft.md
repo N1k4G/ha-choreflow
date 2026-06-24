@@ -165,9 +165,10 @@ class TaskInstance:
     assignment_person: str | None
     external_refs: ExternalRefs | None
     created_at: datetime
-    completed_at: datetime | None
-    completed_by: str | None             # person.* entity_id
-    completion_source: str | None        # push | dashboard | todo
+    estimated_duration_minutes: int | None = None  # von Regel übernommen / optional
+    completed_at: datetime | None = None
+    completed_by: str | None = None      # person.* entity_id
+    completion_source: str | None = None # push | dashboard | todo
 ```
 
 ### 2.4 ExternalRefs
@@ -236,7 +237,9 @@ class Reservation:
 
 - Ein Store pro Config Entry, Key `choreflow.<entry_id>`.
 - Felder: `storage_version`, `task_rules`, `task_instances`, `push_chain_states`, `reservations`, `sync_state`, `calendar_state`.
-- `storage_version: 1` zum Start. Migrationsfunktion `_migrate_func` vorbereiten, auch wenn noch leer.
+- Storage-Major-Version 1; Minor-Version 2 ergänzt die optionale Instanzdauer.
+  Ältere Payloads werden mit `estimated_duration_minutes=None` geladen.
+  Migrationsfunktion `_migrate_func` für weitere Änderungen beibehalten.
 - Schreibzugriffe gebündelt (debounced) über den Coordinator, nicht pro Einzeländerung.
 
 ### 3.3 SQLite-Log-Schema
@@ -270,6 +273,11 @@ CREATE INDEX IF NOT EXISTS idx_log_ts ON log_events(timestamp);
 ### 3.4 Auswertungs-Queries (Mindestumfang)
 
 `LogStore` muss Methoden bereitstellen für: erledigte Aufgaben je Person / Raum / Kategorie / Task, aufgeschobene Aufgaben, häufig aufgeschobene Aufgaben (Top-N), Erledigungen je Monat/Jahr, rechtzeitig erledigte `high`-Aufgaben, überfällige bei Erledigung, Verteilung nach `completion_source`. Diese Methoden liefern Python-Strukturen, die Sensor-Attribute und der spätere Export nutzen.
+
+Für die spätere Historienansicht stellt `LogStore` zusätzlich eine gefilterte,
+paginierte Query bereit. Filter werden in SQL angewendet; zurückgegeben werden
+die aktuelle Seite und die Gesamtanzahl. Das vollständige Log wird nicht in
+den Event Loop geladen.
 
 ---
 
@@ -413,16 +421,19 @@ Eingaben validieren (Entität existiert, Notify-Service existiert). Mehrsprachig
 **Pro aktivierter Person:** `<person>_open_tasks`, `<person>_due_tasks`, `<person>_completed_today`, `<person>_tasks_remaining_today`, `binary_sensor.<person>_has_due_tasks`, `binary_sensor.<person>_chain_active`.
 
 - `unique_id` stabil je Entität; korrekte Device-Gruppierung (eine ChoreFlow-Device pro Entry, Personen ggf. als Sub-Devices).
-- Attribute: `open_tasks` als Liste mit `title, room, category, importance, due_date` (Lastenheft §18.3). Listengröße begrenzen (z. B. max. 30) zur Vermeidung großer State-Attribute.
+- Attribute: `open_tasks` als kompakte Liste mit `task_id, title, room, category, importance, estimated_duration_minutes, due_date`. Auf 30 begrenzen und `api_version`, `total`, `truncated` ergänzen. Vollständige Datensätze gehören nicht in State-Attribute.
+- Der personenbezogene `chain_active`-Binary-Sensor liefert den versionierten Tagesstatus (`started`, `active`, `pending_catchup`, `current_task_id`, `current_task_title`, `tasks_sent_today`, `tasks_completed_today`, `daily_limit`, `remaining_today`, `ended_reason`).
 - Werte aus Coordinator, kein eigenständiges Polling.
 
 ### 5.7 Services (`services.py` + `services.yaml`)
 
-Mindestumfang (Lastenheft §19): `create_task`, `update_task`, `delete_task`, `complete_task`, `snooze_task`, `start_daily_flow`, `send_next_task`, `rebuild_calendar_tasks`, `sync_todo`, `export_log`.
+Mindestumfang (Lastenheft §19): `create_task`, `update_task`, `delete_task`, `complete_task`, `snooze_task`, `start_daily_flow`, `send_next_task`, `rebuild_calendar_tasks`, `sync_todo`, `export_log`, `get_tasks`, `get_history`.
 
 - Vollständige `services.yaml` mit Feldbeschreibungen, Selektoren und Übersetzungen.
 - `complete_task(task_id, person_entity, source)`, `snooze_task(task_id, person_entity)`, `start_daily_flow(person_entity?)`, `sync_todo(entity_id?)` gemäß Lastenheft §19.1–19.4.
-- Alle Services schreiben passende Log-Events und stoßen Sensor-Updates an.
+- Mutierende Services schreiben passende Log-Events und stoßen Sensor-Updates an.
+- `get_tasks` und `get_history` sind read-only und liefern `api_version: 1` sowie `items`, `total`, `limit`, `offset`, `has_more`. Sie schreiben keine Log-Events und lösen keinen Sensor-Refresh aus.
+- Query-Limits werden serverseitig auf maximal 100 begrenzt. Personenfilter unterscheiden `visible` und `assigned`.
 
 ### 5.8 Diagnostics & Repairs
 
@@ -508,7 +519,9 @@ Decken die `engine`-Module ab — das fehleranfällige Herz:
 
 - Config Flow & Options Flow: vollständiger Happy Path + Validierungsfehler.
 - Setup/Unload des Entry; saubere Listener-/Timer-Abmeldung.
-- Service-Registrierung und -Aufrufe (`complete_task`, `snooze_task`, `start_daily_flow`, `sync_todo`, ...).
+- Service-Registrierung und -Aufrufe (`complete_task`, `snooze_task`, `start_daily_flow`, `sync_todo`, ...), inklusive Response-Daten und Validierungsfehlern.
+- Query-Services: Filterkombinationen, Sichtbarkeit/Zuweisung, Pagination, maximale Seitengröße und leere Seiten.
+- Historien-Query: Eventtyp-/Person-/Raum-/Kategorie-Filter, stabile Sortierung und Pagination.
 - Sensor-/Binary-Sensor-State und Attribute.
 - Notification-Action-Event → Erledigen/Snooze → Kette schreitet fort (gemockter Notify-Service, simuliertes `mobile_app_notification_action`-Event).
 - Presence-State-Change → Pausieren/Nachholen.

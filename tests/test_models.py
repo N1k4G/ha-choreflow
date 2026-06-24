@@ -83,6 +83,7 @@ def test_task_instance_round_trip_with_external_refs() -> None:
         room="Bad",
         category="Putzen",
         importance=Importance.NORMAL,
+        estimated_duration_minutes=None,
         urgency_type=None,
         due_date=date(2026, 6, 18),
         deadline=None,
@@ -140,6 +141,34 @@ def test_task_instance_round_trip_minimal_open() -> None:
     assert restored == instance
     assert restored.completed_at is None
     assert restored.external_refs is None
+
+
+def test_task_instance_legacy_payload_defaults_duration() -> None:
+    instance = TaskInstance(
+        id="legacy",
+        rule_id=None,
+        title="Legacy task",
+        description=None,
+        room="Bad",
+        category="Putzen",
+        importance=Importance.NORMAL,
+        urgency_type=None,
+        due_date=None,
+        deadline=None,
+        status=TaskStatus.OPEN,
+        source=TaskSource.MANUAL,
+        visibility_mode=VisibilityMode.ALL_ENABLED_PERSONS,
+        visibility_persons=[],
+        assignment_mode=AssignmentMode.RANDOM,
+        assignment_person=None,
+        external_refs=None,
+        created_at=datetime(2026, 6, 18, 9, 0, tzinfo=_TZ),
+        estimated_duration_minutes=10,
+    )
+    payload = instance.to_dict()
+    del payload["estimated_duration_minutes"]
+
+    assert TaskInstance.from_dict(payload).estimated_duration_minutes is None
 
 
 def test_push_chain_state_round_trip_and_key() -> None:

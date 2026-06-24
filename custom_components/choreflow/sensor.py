@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_COORDINATOR, DATA_SETTINGS, DOMAIN
+from .const import CARD_API_VERSION, DATA_COORDINATOR, DATA_SETTINGS, DOMAIN
 from .coordinator import ChoreFlowCoordinator, ChoreFlowData, PersonStats
 from .entity import build_device_info, person_slug
 from .settings import ChoreFlowSettings
@@ -46,7 +46,12 @@ GLOBAL_SENSORS: tuple[GlobalSensorDescription, ...] = (
         native_unit_of_measurement=_UNIT_TASKS,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.open_tasks,
-        attrs_fn=lambda data: {"open_tasks": data.open_task_list},
+        attrs_fn=lambda data: {
+            "api_version": CARD_API_VERSION,
+            "open_tasks": data.open_task_list,
+            "total": data.open_tasks,
+            "truncated": len(data.open_task_list) < data.open_tasks,
+        },
     ),
     GlobalSensorDescription(
         key="due_tasks",

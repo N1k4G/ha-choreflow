@@ -10,6 +10,11 @@ build/
 *.egg
 .eggs/
 
+# Node / card build (card/ is a standalone project; its built bundle is copied
+# to custom_components/choreflow/www/ and committed — dist/ itself is ignored)
+node_modules/
+*.tsbuildinfo
+
 # Virtual environments
 venv/
 .venv/

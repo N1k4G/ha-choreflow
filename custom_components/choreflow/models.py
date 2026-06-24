@@ -238,6 +238,7 @@ class TaskInstance:
     assignment_person: str | None
     external_refs: ExternalRefs | None
     created_at: datetime
+    estimated_duration_minutes: int | None = None
     completed_at: datetime | None = None
     completed_by: str | None = None
     completion_source: str | None = None
@@ -251,6 +252,7 @@ class TaskInstance:
             "room": self.room,
             "category": self.category,
             "importance": self.importance.value,
+            "estimated_duration_minutes": self.estimated_duration_minutes,
             "urgency_type": self.urgency_type.value if self.urgency_type else None,
             "due_date": _date_to_iso(self.due_date),
             "deadline": _date_to_iso(self.deadline),
@@ -284,6 +286,7 @@ class TaskInstance:
             room=data["room"],
             category=data["category"],
             importance=Importance(data["importance"]),
+            estimated_duration_minutes=data.get("estimated_duration_minutes"),
             urgency_type=UrgencyType(urgency) if urgency else None,
             due_date=_date_from_iso(data.get("due_date")),
             deadline=_date_from_iso(data.get("deadline")),

@@ -20,19 +20,26 @@ from homeassistant.helpers.event import (
 )
 
 from .const import (
+    CALENDAR_RECONCILE_HOUR,
+    CALENDAR_RECONCILE_MINUTE,
+    DATA_CALENDAR_SOURCE,
     DATA_COORDINATOR,
     DATA_LOG_STORE,
     DATA_SETTINGS,
     DATA_STORE,
+    DATA_TODO_SYNC,
     DB_FILENAME,
     DOMAIN,
     EVENT_MOBILE_APP_NOTIFICATION_ACTION,
 )
 from .coordinator import ChoreFlowCoordinator
+from .frontend import async_register_card
 from .notify import parse_action_id
 from .repairs import async_check_issues
 from .services import async_register_services, async_unregister_services
 from .settings import ChoreFlowSettings
+from .sources.calendar_source import CalendarSource
+from .sources.todo_sync import TodoSync
 from .store import ChoreFlowStore, LogStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,18 +59,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = ChoreFlowCoordinator(hass, entry, store, log_store, settings)
     await coordinator.async_config_entry_first_refresh()
 
+    todo_sync = TodoSync(hass, coordinator, settings)
+    calendar_source = CalendarSource(hass, coordinator, settings)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         DATA_STORE: store,
         DATA_LOG_STORE: log_store,
         DATA_SETTINGS: settings,
         DATA_COORDINATOR: coordinator,
+        DATA_TODO_SYNC: todo_sync,
+        DATA_CALENDAR_SOURCE: calendar_source,
     }
 
     async_check_issues(hass, entry, settings)
     async_register_services(hass)
+    await async_register_card(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _register_runtime_triggers(hass, entry, coordinator, settings)
+    _register_todo_sync(hass, entry, coordinator, todo_sync)
+    _register_calendar_source(hass, entry, calendar_source)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     _LOGGER.debug("ChoreFlow entry %s set up", entry.entry_id)
@@ -153,6 +168,58 @@ def _register_runtime_triggers(
         hass.bus.async_listen(
             EVENT_MOBILE_APP_NOTIFICATION_ACTION, _on_notification_action
         )
+    )
+
+
+@callback
+def _register_todo_sync(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: ChoreFlowCoordinator,
+    todo_sync: TodoSync,
+) -> None:
+    """Wire to-do completion mirroring, change tracking and an initial sync."""
+    if not todo_sync.active or todo_sync.entity_id is None:
+        return
+
+    coordinator.add_completion_listener(todo_sync.async_on_completion)
+
+    @callback
+    def _on_todo_change(event: Event[EventStateChangedData]) -> None:
+        hass.async_create_task(todo_sync.async_sync())
+
+    entry.async_on_unload(
+        async_track_state_change_event(hass, [todo_sync.entity_id], _on_todo_change)
+    )
+    entry.async_create_background_task(
+        hass, todo_sync.async_sync(), name="choreflow_initial_todo_sync"
+    )
+
+
+@callback
+def _register_calendar_source(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    calendar_source: CalendarSource,
+) -> None:
+    """Wire a daily calendar reconcile and an initial sync (§7)."""
+    if not calendar_source.active:
+        return
+
+    async def _reconcile(_now: object) -> None:
+        await calendar_source.async_sync()
+
+    entry.async_on_unload(
+        async_track_time_change(
+            hass,
+            _reconcile,
+            hour=CALENDAR_RECONCILE_HOUR,
+            minute=CALENDAR_RECONCILE_MINUTE,
+            second=0,
+        )
+    )
+    entry.async_create_background_task(
+        hass, calendar_source.async_sync(), name="choreflow_initial_calendar_sync"
     )
 
 

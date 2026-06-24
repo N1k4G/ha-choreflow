@@ -231,6 +231,7 @@ title: Waschbecken wischen
 room: Bad
 category: Putzen
 importance: normal
+estimated_duration_minutes: 5
 due_date: "2026-06-18"
 status: open
 source: rule
@@ -871,11 +872,43 @@ Sensoren sollen nützliche Attribute enthalten, zum Beispiel:
 
 ```yaml
 open_tasks:
-  - title: Waschbecken wischen
+  - task_id: inst_2026_06_18_clean_bathroom_sink
+    title: Waschbecken wischen
     room: Bad
     category: Putzen
     importance: normal
+    estimated_duration_minutes: 5
     due_date: "2026-06-18"
+```
+
+Das Attribut des globalen Open-Tasks-Sensors ist eine nach Dringlichkeit
+sortierte Vorschau mit maximal 30 Einträgen. Zusätzlich enthält der Sensor:
+
+```yaml
+api_version: 1
+total: 42
+truncated: true
+```
+
+Vollständige und gefilterte Listen werden paginiert über
+`choreflow.get_tasks` abgefragt.
+
+Der personenspezifische `chain_active`-Binary-Sensor enthält mindestens:
+
+```yaml
+api_version: 1
+person_entity: person.niklas
+date: "2026-06-18"
+started: true
+active: true
+pending_catchup: false
+current_task_id: inst_2026_06_18_clean_bathroom_sink
+current_task_title: Waschbecken wischen
+tasks_sent_today: 3
+tasks_completed_today: 2
+daily_limit: 5
+remaining_today: 2
+ended_reason: null
 ```
 
 ---
@@ -897,6 +930,8 @@ choreflow.send_next_task
 choreflow.rebuild_calendar_tasks
 choreflow.sync_todo
 choreflow.export_log
+choreflow.get_tasks
+choreflow.get_history
 ```
 
 ### 19.1 `complete_task`
@@ -941,6 +976,35 @@ Parameter:
 ```yaml
 entity_id: optional string
 ```
+
+### 19.5 `get_tasks`
+
+Read-only-Abfrage für vollständige, gefilterte und paginierte Aufgabenlisten.
+Filter: Status, Person (`visible` oder `assigned`), Raum und Kategorie.
+`limit` ist auf maximal 100 begrenzt.
+
+```yaml
+request:
+  status: open
+  person_entity: person.niklas
+  person_scope: visible
+  limit: 50
+  offset: 0
+response:
+  api_version: 1
+  items: []
+  total: 0
+  limit: 50
+  offset: 0
+  has_more: false
+```
+
+### 19.6 `get_history`
+
+Read-only-Abfrage für gefilterte und paginierte Logereignisse. Ohne
+`event_types` werden Erledigungen aus ChoreFlow und To-do geliefert. Die
+Antwort verwendet denselben versionierten Pagination-Envelope wie
+`get_tasks`.
 
 ---
 

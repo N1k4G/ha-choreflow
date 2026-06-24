@@ -22,3 +22,24 @@ jobs:
           cache: pip
       - run: pip install -r requirements_test.txt mypy
       - run: mypy custom_components/choreflow
+
+  card:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: card
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: card/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - name: Verify bundled card matches source
+        run: |
+          cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js
+          git diff --exit-code -- ../custom_components/choreflow/www/choreflow-card.js \
+            || (echo "::error::www/choreflow-card.js is stale — rebuild in card/ (npm run build) and copy dist/choreflow-card.js to custom_components/choreflow/www/" && exit 1)

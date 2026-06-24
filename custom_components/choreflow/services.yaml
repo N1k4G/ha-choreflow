@@ -25,6 +25,14 @@ create_task:
       selector:
         select:
           options: [high, normal, low]
+    estimated_duration_minutes:
+      name: Estimated duration
+      description: Estimated task duration in minutes.
+      selector:
+        number:
+          min: 1
+          max: 1440
+          mode: box
     due_date:
       name: Due date
       selector:
@@ -81,6 +89,14 @@ update_task:
       selector:
         select:
           options: [high, normal, low]
+    estimated_duration_minutes:
+      name: Estimated duration
+      description: Estimated task duration in minutes.
+      selector:
+        number:
+          min: 1
+          max: 1440
+          mode: box
     due_date:
       name: Due date
       selector:
@@ -175,3 +191,119 @@ send_next_task:
       selector:
         entity:
           domain: person
+
+sync_todo:
+  name: Sync to-do
+  description: Run a manual to-do synchronisation (import + completion sync).
+  fields:
+    entity_id:
+      name: To-do list
+      description: Optional; the configured list is used if omitted.
+      selector:
+        entity:
+          domain: todo
+
+rebuild_calendar_tasks:
+  name: Rebuild calendar tasks
+  description: Re-read the configured calendars and reconcile calendar-based tasks.
+
+export_log:
+  name: Export log
+  description: Export the full event log to a file under choreflow_exports/.
+  fields:
+    format:
+      name: Format
+      description: Export format.
+      selector:
+        select:
+          options: [json, csv]
+
+get_tasks:
+  name: Get tasks
+  description: Return a filtered, paginated collection of ChoreFlow tasks.
+  fields:
+    status:
+      name: Status
+      selector:
+        select:
+          options: [open, completed, deleted, all]
+    person_entity:
+      name: Person
+      selector:
+        entity:
+          domain: person
+    person_scope:
+      name: Person scope
+      selector:
+        select:
+          options: [visible, assigned]
+    room:
+      name: Room
+      selector:
+        text:
+    category:
+      name: Category
+      selector:
+        text:
+    limit:
+      name: Limit
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    offset:
+      name: Offset
+      selector:
+        number:
+          min: 0
+          mode: box
+
+get_history:
+  name: Get history
+  description: Return filtered, paginated ChoreFlow log events.
+  fields:
+    event_types:
+      name: Event types
+      selector:
+        select:
+          multiple: true
+          options:
+            - task_created
+            - task_updated
+            - task_deleted
+            - task_notified
+            - task_completed
+            - task_snoozed
+            - task_missed_no_presence
+            - task_expired
+            - task_synced_from_todo
+            - task_completed_from_todo
+            - calendar_task_created
+            - calendar_task_removed
+    person_entity:
+      name: Person
+      selector:
+        entity:
+          domain: person
+    room:
+      name: Room
+      selector:
+        text:
+    category:
+      name: Category
+      selector:
+        text:
+    limit:
+      name: Limit
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    offset:
+      name: Offset
+      selector:
+        number:
+          min: 0
+          mode: box

@@ -13,13 +13,17 @@ Two stores, by design:
 
 from __future__ import annotations
 
+import csv
+import json
 import logging
+import os
 import sqlite3
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, TypeVar
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -27,6 +31,7 @@ from .const import (
     EVENT_TASK_COMPLETED_FROM_TODO,
     EVENT_TASK_SNOOZED,
     STORAGE_KEY_TEMPLATE,
+    STORAGE_MINOR_VERSION,
     STORAGE_VERSION,
     STORE_SAVE_DEBOUNCE_SECONDS,
 )
@@ -77,6 +82,7 @@ class ChoreFlowStore:
             hass,
             STORAGE_VERSION,
             STORAGE_KEY_TEMPLATE.format(entry_id=entry_id),
+            minor_version=STORAGE_MINOR_VERSION,
         )
         self.task_rules: dict[str, TaskRule] = {}
         self.task_instances: dict[str, TaskInstance] = {}
@@ -174,6 +180,24 @@ INSERT OR REPLACE INTO log_events (
     overdue_days_at_completion, decision_reason
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+# Ordered columns of the log_events table (for CSV export).
+_LOG_COLUMNS: tuple[str, ...] = (
+    "event_id",
+    "event_type",
+    "task_id",
+    "task_rule_id",
+    "title",
+    "room",
+    "category",
+    "importance",
+    "person_entity",
+    "timestamp",
+    "source",
+    "completion_source",
+    "overdue_days_at_completion",
+    "decision_reason",
+)
 
 # Allowlist of group-by dimensions to keep dynamic column names injection-safe.
 _GROUP_COLUMNS: frozenset[str] = frozenset({"person_entity", "room", "category"})
@@ -378,6 +402,65 @@ class LogDatabase:
             ).fetchall()
         return {row["k"]: row["c"] for row in rows if row["k"] is not None}
 
+    def fetch_all(self) -> list[dict[str, Any]]:
+        """Return every log event, oldest first."""
+        with self._lock:
+            rows = self._c.execute(
+                "SELECT * FROM log_events ORDER BY timestamp ASC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def query_history(
+        self,
+        event_types: Sequence[str],
+        person_entity: str | None,
+        room: str | None,
+        category: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return a filtered history page and the total matching row count."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if event_types:
+            placeholders = ", ".join("?" for _ in event_types)
+            conditions.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        for column, value in (
+            ("person_entity", person_entity),
+            ("room", room),
+            ("category", category),
+        ):
+            if value is not None:
+                conditions.append(f"{column} = ?")
+                params.append(value)
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._lock:
+            count_row = self._c.execute(
+                f"SELECT COUNT(*) AS c FROM log_events{where}", params
+            ).fetchone()
+            rows = self._c.execute(
+                "SELECT * FROM log_events"
+                f"{where} ORDER BY timestamp DESC, event_id DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+        return [dict(row) for row in rows], int(count_row["c"])
+
+    def export_to_file(self, path: str, fmt: str) -> str:
+        """Export the whole log to ``path`` as ``json`` or ``csv`` (§8)."""
+        rows = self.fetch_all()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if fmt == "csv":
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(_LOG_COLUMNS))
+                writer.writeheader()
+                writer.writerows(rows)
+        else:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(rows, handle, ensure_ascii=False, indent=2)
+        return path
+
 
 # ===========================================================================
 # Async HA wrapper around LogDatabase — §3.3
@@ -388,15 +471,28 @@ class LogStore:
     def __init__(self, hass: HomeAssistant, db_path: str) -> None:
         self._hass = hass
         self._db = LogDatabase(db_path)
+        self._remove_stop_listener: Callable[[], None] | None = None
 
     async def _run(self, func: Callable[..., _T], *args: Any) -> _T:
         return await self._hass.async_add_executor_job(func, *args)
 
     async def async_setup(self) -> None:
         await self._run(self._db.connect)
+        self._remove_stop_listener = self._hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STOP,
+            self._async_close_on_stop,
+        )
 
     async def async_close(self) -> None:
+        if self._remove_stop_listener is not None:
+            remove_stop_listener = self._remove_stop_listener
+            self._remove_stop_listener = None
+            remove_stop_listener()
         await self._run(self._db.close)
+
+    async def _async_close_on_stop(self, _event: Event[Any]) -> None:
+        self._remove_stop_listener = None
+        await self.async_close()
 
     async def async_add_event(self, event: LogEvent) -> None:
         await self._run(self._db.insert, event)
@@ -444,4 +540,27 @@ class LogStore:
     ) -> dict[str, int]:
         return await self._run(
             self._db.completed_count_by_person_in_range, start_date, end_date
+        )
+
+    async def async_export(self, path: str, fmt: str) -> str:
+        return await self._run(self._db.export_to_file, path, fmt)
+
+    async def async_query_history(
+        self,
+        *,
+        event_types: Sequence[str],
+        person_entity: str | None,
+        room: str | None,
+        category: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        return await self._run(
+            self._db.query_history,
+            event_types,
+            person_entity,
+            room,
+            category,
+            limit,
+            offset,
         )

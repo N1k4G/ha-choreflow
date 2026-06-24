@@ -1,6 +1,7 @@
 {
   "domain": "choreflow",
   "name": "ChoreFlow",
+  "after_dependencies": ["http", "frontend"],
   "codeowners": ["@N1k4G"],
   "config_flow": true,
   "dependencies": [],
