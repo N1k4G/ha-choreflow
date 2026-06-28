@@ -37,7 +37,7 @@
       },
       "todo": {
         "title": "To-do-Synchronisation",
-        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und ChoreFlow-Aufgaben dorthin übertragen; Erledigung, Wiederöffnen und Löschen werden in beide Richtungen synchronisiert.",
         "data": {
           "enabled": "To-do-Sync aktivieren",
           "entity_id": "To-do-Liste",
@@ -100,7 +100,7 @@
       },
       "todo": {
         "title": "To-do-Synchronisation",
-        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und ChoreFlow-Aufgaben dorthin übertragen; Erledigung, Wiederöffnen und Löschen werden in beide Richtungen synchronisiert.",
         "data": {
           "enabled": "To-do-Sync aktivieren",
           "entity_id": "To-do-Liste",

@@ -37,7 +37,7 @@
       },
       "todo": {
         "title": "To-do sync",
-        "description": "Optionally import tasks from a to-do list and sync completion.",
+        "description": "Optionally import tasks from a to-do list, and push ChoreFlow tasks back to it with completion, reopen and deletion synced both ways.",
         "data": {
           "enabled": "Enable to-do sync",
           "entity_id": "To-do list",
@@ -100,7 +100,7 @@
       },
       "todo": {
         "title": "To-do sync",
-        "description": "Optionally import tasks from a to-do list and sync completion.",
+        "description": "Optionally import tasks from a to-do list, and push ChoreFlow tasks back to it with completion, reopen and deletion synced both ways.",
         "data": {
           "enabled": "Enable to-do sync",
           "entity_id": "To-do list",

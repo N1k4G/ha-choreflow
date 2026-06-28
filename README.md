@@ -26,8 +26,9 @@ logs everything for long-term insight.
   bundling for follow-ups, and `high` tasks protected from starvation.
 - Reservations prevent double work; time-critical `high` tasks may go to several
   people in parallel on the last day.
-- **To-do sync** (MVP 0.2): import items from a `todo.*` list and mirror
-  completion both ways.
+- **To-do sync** (MVP 0.2): import items from a `todo.*` list, and push
+  ChoreFlow tasks back to it — mirroring creation, completion, reopen and
+  deletion both ways.
 - **Calendar tasks** (MVP 0.2): all-day events (e.g. waste collection) become
   `high` tasks due the day before, with change/delete reconciliation.
 - Global and per-person sensors + binary sensors.
@@ -61,8 +62,10 @@ through:
 3. Per person: **notify service** (`notify.mobile_app_*`), presence-required,
    weekday/weekend push toggles.
 4. **Schedule**: weekday/weekend start time, day end, max tasks per day.
-5. **To-do sync** (optional): list entity, import + completion flags, import
-   defaults.
+5. **To-do sync** (optional): list entity, import + push/completion flags,
+   import defaults. With "Push tasks and completion to to-do" enabled, open
+   ChoreFlow tasks (due today, overdue, or with no due date) are created as
+   items on the list and kept in sync.
 6. **Calendar sync** (optional): calendar entity, summary match terms, due
    offset (default −1 = day before).
 
