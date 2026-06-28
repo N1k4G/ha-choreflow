@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 HACS-compatible, config-flow-only integration targeting Home Assistant 2026.6,
 CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
 
+### Added — To-do export
+- "Push tasks and completion to to-do" (the former "Sync completion to to-do"
+  option) now also exports ChoreFlow tasks to the linked to-do list: open tasks
+  that are due today, overdue, or have no due date are created as to-do items
+  and linked back. Creating, completing, reopening and deleting/pruning such a
+  task is mirrored to its to-do item. A daily reconcile back-fills tasks that
+  become due later and repairs drift.
+
 ### Added — MVP 0.1
 - Multi-step config flow and options flow (persons, per-person notify targets,
   schedule, to-do and calendar setup); German & English UI.

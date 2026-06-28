@@ -100,10 +100,33 @@ class TodoSync:
         """Mirror a ChoreFlow completion to the linked to-do item."""
         if not self.active or not self.sync_to_todo or source == COMPLETION_SOURCE_TODO:
             return
-        refs = inst.external_refs
-        if refs is None or refs.todo is None or refs.todo.entity_id != self.entity_id:
+        uid = self._linked_uid(inst)
+        if uid is not None:
+            await self._complete_todo_item(uid)
+
+    # -- listeners for ChoreFlow → to-do creation/reopen/delete (§16.5) -----
+    async def async_on_task_created(self, inst: TaskInstance) -> None:
+        """Push a newly created ChoreFlow task to the linked to-do list."""
+        if not self.active or not self.sync_to_todo:
             return
-        await self._complete_todo_item(refs.todo.item_uid)
+        if self._should_export(inst):
+            await self._export_task(inst)
+
+    async def async_on_task_reopened(self, inst: TaskInstance) -> None:
+        """Re-open the linked to-do item when its ChoreFlow task is reopened."""
+        if not self.active or not self.sync_to_todo:
+            return
+        uid = self._linked_uid(inst)
+        if uid is not None:
+            await self._reopen_todo_item(uid)
+
+    async def async_on_task_deleted(self, inst: TaskInstance) -> None:
+        """Remove the linked to-do item when its ChoreFlow task is deleted."""
+        if not self.active or not self.sync_to_todo:
+            return
+        uid = self._linked_uid(inst)
+        if uid is not None:
+            await self._delete_todo_item(uid)
 
     # -- full reconcile (§16.3/§16.4) --------------------------------------
     async def async_sync(self) -> None:
@@ -135,6 +158,10 @@ class TodoSync:
             for uid, item in by_uid.items():
                 if item.get("status") == _STATUS_COMPLETED:
                     continue
+                # Skip items already linked to an existing task — including ones
+                # we exported ourselves — so we never re-import them as dupes.
+                if uid in mapped:
+                    continue
                 task_id = f"task_todo_{_sanitize(uid)}"
                 if task_id in self.coordinator.store.task_instances:
                     continue
@@ -142,7 +169,62 @@ class TodoSync:
                     self._build_instance(task_id, uid, item)
                 )
 
+        if self.sync_to_todo:
+            for inst in list(self.coordinator.store.task_instances.values()):
+                if self._should_export(inst):
+                    await self._export_task(inst)
+
     # -- helpers -----------------------------------------------------------
+    def _linked_uid(self, inst: TaskInstance) -> str | None:
+        """Return the to-do uid this task is linked to on our entity, if any."""
+        refs = inst.external_refs
+        if refs is None or refs.todo is None or refs.todo.entity_id != self.entity_id:
+            return None
+        return refs.todo.item_uid
+
+    def _should_export(self, inst: TaskInstance) -> bool:
+        """True when an open ChoreFlow task should be pushed to the to-do list."""
+        if inst.status != TaskStatus.OPEN:
+            return False
+        if self._linked_uid(inst) is not None:
+            return False  # already mirrored to this entity
+        today = self.coordinator.clock.today()
+        return inst.due_date is None or inst.due_date <= today
+
+    async def _export_task(self, inst: TaskInstance) -> None:
+        """Create a to-do item for a ChoreFlow task and link it back."""
+        assert self.entity_id is not None
+        before = await self._fetch_items()
+        if before is None:
+            return  # entity unavailable; the next reconcile retries
+        before_uids = {item["uid"] for item in before if item.get("uid")}
+        if not await self._add_todo_item(inst.title, inst.description):
+            return
+        after = await self._fetch_items()
+        if after is None:
+            return
+        new_items = [
+            item
+            for item in after
+            if item.get("uid") and item["uid"] not in before_uids
+        ]
+        if len(new_items) == 1:
+            uid = new_items[0]["uid"]
+        else:
+            # Ambiguous (concurrent add or duplicate summary): match by summary.
+            matches = [i for i in new_items if i.get("summary") == inst.title]
+            if len(matches) != 1:
+                _LOGGER.warning(
+                    "Could not resolve uid for exported task %s; will retry",
+                    inst.id,
+                )
+                return
+            uid = matches[0]["uid"]
+        inst.external_refs = ExternalRefs(
+            todo=TodoRef(entity_id=self.entity_id, item_uid=uid)
+        )
+        self.coordinator.store.async_schedule_save()
+
     def _mapped_instances(self) -> dict[str, TaskInstance]:
         result: dict[str, TaskInstance] = {}
         for inst in self.coordinator.store.task_instances.values():
@@ -208,17 +290,48 @@ class TodoSync:
             return []
         return [item for item in raw_items if isinstance(item, dict)]
 
+    async def _add_todo_item(self, summary: str, description: str | None) -> bool:
+        """Create a to-do item; return True on success."""
+        assert self.entity_id is not None
+        data: dict[str, Any] = {"entity_id": self.entity_id, "item": summary}
+        if description:
+            data["description"] = description
+        try:
+            await self.hass.services.async_call("todo", "add_item", data, blocking=True)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Failed to add to-do item %s", summary)
+            return False
+        return True
+
     async def _complete_todo_item(self, uid: str) -> None:
+        await self._update_todo_status(uid, "completed")
+
+    async def _reopen_todo_item(self, uid: str) -> None:
+        await self._update_todo_status(uid, "needs_action")
+
+    async def _update_todo_status(self, uid: str, status: str) -> None:
         assert self.entity_id is not None
         try:
             await self.hass.services.async_call(
                 "todo",
                 "update_item",
-                {"entity_id": self.entity_id, "item": uid, "status": "completed"},
+                {"entity_id": self.entity_id, "item": uid, "status": status},
                 blocking=True,
             )
         except Exception:  # noqa: BLE001
-            _LOGGER.exception("Failed to complete to-do item %s", uid)
+            _LOGGER.exception("Failed to set to-do item %s to %s", uid, status)
+
+    async def _delete_todo_item(self, uid: str) -> None:
+        assert self.entity_id is not None
+        try:
+            await self.hass.services.async_call(
+                "todo",
+                "remove_item",
+                {"entity_id": self.entity_id, "item": uid},
+                blocking=True,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Failed to remove to-do item %s", uid)
 
     def _raise_unavailable_issue(self) -> None:
         _LOGGER.warning("To-do entity %s unavailable; sync suspended", self.entity_id)

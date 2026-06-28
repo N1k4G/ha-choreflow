@@ -191,6 +191,9 @@ def _register_todo_sync(
         return
 
     coordinator.add_completion_listener(todo_sync.async_on_completion)
+    coordinator.add_task_created_listener(todo_sync.async_on_task_created)
+    coordinator.add_task_reopened_listener(todo_sync.async_on_task_reopened)
+    coordinator.add_task_deleted_listener(todo_sync.async_on_task_deleted)
 
     @callback
     def _on_todo_change(event: Event[EventStateChangedData]) -> None:
@@ -199,6 +202,20 @@ def _register_todo_sync(
     entry.async_on_unload(
         async_track_state_change_event(hass, [todo_sync.entity_id], _on_todo_change)
     )
+
+    async def _reconcile(_now: object) -> None:
+        await todo_sync.async_sync()
+
+    entry.async_on_unload(
+        async_track_time_change(
+            hass,
+            _reconcile,
+            hour=CALENDAR_RECONCILE_HOUR,
+            minute=CALENDAR_RECONCILE_MINUTE,
+            second=0,
+        )
+    )
+
     def _start_todo_sync(_hass: HomeAssistant) -> None:
         entry.async_create_background_task(
             hass, todo_sync.async_sync(), name="choreflow_initial_todo_sync"
