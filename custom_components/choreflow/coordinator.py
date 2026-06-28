@@ -219,12 +219,53 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         self._completion_listeners: list[
             Callable[[TaskInstance, str], Awaitable[None]]
         ] = []
+        # Listeners notified after a task is created / reopened / deleted, used to
+        # mirror ChoreFlow tasks out to a linked to-do list (§6).
+        self._task_created_listeners: list[
+            Callable[[TaskInstance], Awaitable[None]]
+        ] = []
+        self._task_reopened_listeners: list[
+            Callable[[TaskInstance], Awaitable[None]]
+        ] = []
+        self._task_deleted_listeners: list[
+            Callable[[TaskInstance], Awaitable[None]]
+        ] = []
 
     def add_completion_listener(
         self, listener: Callable[[TaskInstance, str], Awaitable[None]]
     ) -> None:
         """Register a callback invoked after a user task completion (§6)."""
         self._completion_listeners.append(listener)
+
+    def add_task_created_listener(
+        self, listener: Callable[[TaskInstance], Awaitable[None]]
+    ) -> None:
+        """Register a callback invoked after a task is created (§6)."""
+        self._task_created_listeners.append(listener)
+
+    def add_task_reopened_listener(
+        self, listener: Callable[[TaskInstance], Awaitable[None]]
+    ) -> None:
+        """Register a callback invoked after a task is reopened (§6)."""
+        self._task_reopened_listeners.append(listener)
+
+    def add_task_deleted_listener(
+        self, listener: Callable[[TaskInstance], Awaitable[None]]
+    ) -> None:
+        """Register a callback invoked after a task is deleted (§6)."""
+        self._task_deleted_listeners.append(listener)
+
+    async def _notify_task_created(self, inst: TaskInstance) -> None:
+        for listener in self._task_created_listeners:
+            await listener(inst)
+
+    async def _notify_task_reopened(self, inst: TaskInstance) -> None:
+        for listener in self._task_reopened_listeners:
+            await listener(inst)
+
+    async def _notify_task_deleted(self, inst: TaskInstance) -> None:
+        for listener in self._task_deleted_listeners:
+            await listener(inst)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -322,11 +363,12 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
                     task=inst,
                     decision_reason="recurrence due",
                 )
-        self._prune_completed(today)
+            await self._notify_task_created(inst)
+        await self._prune_completed(today)
         if new_instances:
             self.store.async_schedule_save()
 
-    def _prune_completed(self, today: date) -> None:
+    async def _prune_completed(self, today: date) -> None:
         cutoff = today - timedelta(days=_COMPLETED_RETENTION_DAYS)
         stale = [
             inst_id
@@ -336,7 +378,8 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             and inst.completed_at.date() < cutoff
         ]
         for inst_id in stale:
-            del self.store.task_instances[inst_id]
+            inst = self.store.task_instances.pop(inst_id)
+            await self._notify_task_deleted(inst)
 
     def _completed_today(self, person: str, today: date) -> bool:
         """True if person completed any task today (any source)."""
@@ -517,6 +560,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             person=person,
             decision_reason="reopened by user",
         )
+        await self._notify_task_reopened(inst)
         await self._persist_and_refresh()
 
     async def async_snooze_task(self, task_id: str, person: str) -> None:
@@ -581,6 +625,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         await self._async_log_event(
             EVENT_TASK_CREATED, task=inst, decision_reason="manual create"
         )
+        await self._notify_task_created(inst)
         await self._persist_and_refresh()
         return task_id
 
@@ -716,7 +761,8 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
                     and i.due_date > today
                 ]
                 for iid in stale:
-                    del self.store.task_instances[iid]
+                    removed = self.store.task_instances.pop(iid)
+                    await self._notify_task_deleted(removed)
 
         await self._async_log_event(
             EVENT_TASK_UPDATED, task=inst, decision_reason="manual update"
@@ -733,6 +779,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         await self._async_log_event(
             EVENT_TASK_DELETED, task=inst, decision_reason="manual delete"
         )
+        await self._notify_task_deleted(inst)
         await self._persist_and_refresh()
 
     # ------------------------------------------------------------------
@@ -776,6 +823,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             task=inst,
             decision_reason="created from calendar event",
         )
+        await self._notify_task_created(inst)
         await self._persist_and_refresh()
 
     async def async_remove_calendar_task(self, task_id: str) -> None:
@@ -789,6 +837,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             task=inst,
             decision_reason="calendar event removed",
         )
+        await self._notify_task_deleted(inst)
         await self._persist_and_refresh()
 
     # ------------------------------------------------------------------

@@ -37,13 +37,13 @@
       },
       "todo": {
         "title": "To-do sync",
-        "description": "Optionally import tasks from a to-do list and sync completion.",
+        "description": "Optionally import tasks from a to-do list, and push ChoreFlow tasks back to it with completion, reopen and deletion synced both ways.",
         "data": {
           "enabled": "Enable to-do sync",
           "entity_id": "To-do list",
           "import_new_items": "Import new items",
           "sync_completion_from_todo": "Sync completion from to-do",
-          "sync_completion_to_todo": "Sync completion to to-do",
+          "sync_completion_to_todo": "Push tasks and completion to to-do",
           "room": "Default room for imported tasks",
           "category": "Default category for imported tasks",
           "importance": "Default importance for imported tasks",
@@ -100,13 +100,13 @@
       },
       "todo": {
         "title": "To-do sync",
-        "description": "Optionally import tasks from a to-do list and sync completion.",
+        "description": "Optionally import tasks from a to-do list, and push ChoreFlow tasks back to it with completion, reopen and deletion synced both ways.",
         "data": {
           "enabled": "Enable to-do sync",
           "entity_id": "To-do list",
           "import_new_items": "Import new items",
           "sync_completion_from_todo": "Sync completion from to-do",
-          "sync_completion_to_todo": "Sync completion to to-do",
+          "sync_completion_to_todo": "Push tasks and completion to to-do",
           "room": "Default room for imported tasks",
           "category": "Default category for imported tasks",
           "importance": "Default importance for imported tasks",

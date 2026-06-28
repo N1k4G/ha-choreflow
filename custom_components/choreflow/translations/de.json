@@ -37,13 +37,13 @@
       },
       "todo": {
         "title": "To-do-Synchronisation",
-        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und ChoreFlow-Aufgaben dorthin übertragen; Erledigung, Wiederöffnen und Löschen werden in beide Richtungen synchronisiert.",
         "data": {
           "enabled": "To-do-Sync aktivieren",
           "entity_id": "To-do-Liste",
           "import_new_items": "Neue Einträge importieren",
           "sync_completion_from_todo": "Erledigung von To-do übernehmen",
-          "sync_completion_to_todo": "Erledigung nach To-do übertragen",
+          "sync_completion_to_todo": "Aufgaben und Erledigung nach To-do übertragen",
           "room": "Standardraum für importierte Aufgaben",
           "category": "Standardkategorie für importierte Aufgaben",
           "importance": "Standardwichtigkeit für importierte Aufgaben",
@@ -100,13 +100,13 @@
       },
       "todo": {
         "title": "To-do-Synchronisation",
-        "description": "Optional Aufgaben aus einer To-do-Liste importieren und den Erledigt-Status synchronisieren.",
+        "description": "Optional Aufgaben aus einer To-do-Liste importieren und ChoreFlow-Aufgaben dorthin übertragen; Erledigung, Wiederöffnen und Löschen werden in beide Richtungen synchronisiert.",
         "data": {
           "enabled": "To-do-Sync aktivieren",
           "entity_id": "To-do-Liste",
           "import_new_items": "Neue Einträge importieren",
           "sync_completion_from_todo": "Erledigung von To-do übernehmen",
-          "sync_completion_to_todo": "Erledigung nach To-do übertragen",
+          "sync_completion_to_todo": "Aufgaben und Erledigung nach To-do übertragen",
           "room": "Standardraum für importierte Aufgaben",
           "category": "Standardkategorie für importierte Aufgaben",
           "importance": "Standardwichtigkeit für importierte Aufgaben",
