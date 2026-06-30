@@ -13,6 +13,7 @@ raises a repair issue and resumes on the next sync (§23.3).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -90,6 +91,9 @@ class TodoSync:
         self._assignment = AssignmentMode(
             defaults.get(CONF_IMPORT_ASSIGNMENT_MODE, DEFAULT_IMPORT_ASSIGNMENT_MODE)
         )
+        # Serialises exports so a state-change-triggered re-sync cannot race the
+        # add-then-link window in ``_export_task`` and create duplicate items.
+        self._export_lock = asyncio.Lock()
 
     @property
     def active(self) -> bool:
@@ -194,36 +198,44 @@ class TodoSync:
     async def _export_task(self, inst: TaskInstance) -> None:
         """Create a to-do item for a ChoreFlow task and link it back."""
         assert self.entity_id is not None
-        before = await self._fetch_items()
-        if before is None:
-            return  # entity unavailable; the next reconcile retries
-        before_uids = {item["uid"] for item in before if item.get("uid")}
-        if not await self._add_todo_item(inst.title, inst.description):
-            return
-        after = await self._fetch_items()
-        if after is None:
-            return
-        new_items = [
-            item
-            for item in after
-            if item.get("uid") and item["uid"] not in before_uids
-        ]
-        if len(new_items) == 1:
-            uid = new_items[0]["uid"]
-        else:
-            # Ambiguous (concurrent add or duplicate summary): match by summary.
-            matches = [i for i in new_items if i.get("summary") == inst.title]
-            if len(matches) != 1:
-                _LOGGER.warning(
-                    "Could not resolve uid for exported task %s; will retry",
-                    inst.id,
-                )
+        # The lock serialises the add-then-link window; the re-check inside it
+        # guards against a concurrent export that already linked this task while
+        # we waited (e.g. a state-change-triggered re-sync).
+        async with self._export_lock:
+            if not self._should_export(inst):
                 return
-            uid = matches[0]["uid"]
-        inst.external_refs = ExternalRefs(
-            todo=TodoRef(entity_id=self.entity_id, item_uid=uid)
-        )
-        self.coordinator.store.async_schedule_save()
+            before = await self._fetch_items()
+            if before is None:
+                return  # entity unavailable; the next reconcile retries
+            before_uids = {item["uid"] for item in before if item.get("uid")}
+            if not await self._add_todo_item(inst.title, inst.description):
+                return
+            after = await self._fetch_items()
+            if after is None:
+                return
+            new_items = [
+                item
+                for item in after
+                if item.get("uid") and item["uid"] not in before_uids
+            ]
+            if len(new_items) == 1:
+                uid = new_items[0]["uid"]
+            else:
+                # Ambiguous (concurrent add or duplicate summary): match by summary.
+                matches = [i for i in new_items if i.get("summary") == inst.title]
+                if len(matches) != 1:
+                    _LOGGER.warning(
+                        "Could not resolve uid for exported task %s; will retry",
+                        inst.id,
+                    )
+                    return
+                uid = matches[0]["uid"]
+            # Merge, never replace: a calendar task keeps its calendar ref so the
+            # calendar source still recognises it and won't recreate a duplicate.
+            refs = inst.external_refs or ExternalRefs()
+            refs.todo = TodoRef(entity_id=self.entity_id, item_uid=uid)
+            inst.external_refs = refs
+            self.coordinator.store.async_schedule_save()
 
     def _mapped_instances(self) -> dict[str, TaskInstance]:
         result: dict[str, TaskInstance] = {}
