@@ -20,6 +20,7 @@ from custom_components.choreflow.coordinator import ChoreFlowCoordinator
 from custom_components.choreflow.engine.clock import FixedClock
 from custom_components.choreflow.engine.scheduler import ScheduleConfig
 from custom_components.choreflow.models import (
+    CalendarRef,
     ExternalRefs,
     TaskSource,
     TaskStatus,
@@ -184,6 +185,35 @@ async def test_export_task_on_creation(hass: HomeAssistant) -> None:
     inst = store.task_instances[task_id]
     assert inst.external_refs.todo.entity_id == _ENTITY
     assert inst.external_refs.todo.item_uid == items[0]["uid"]
+
+
+async def test_export_preserves_calendar_ref(hass: HomeAssistant) -> None:
+    """Exporting a calendar task must keep its calendar ref (no dupe storm)."""
+    coordinator, store, todo_sync, items, _ = await _build(hass)
+
+    cal_ref = CalendarRef(
+        entity_id="calendar.muell",
+        event_uid="restmuell@2026-06-16",
+        task_rule_id="cal_calendar-muell",
+    )
+    inst = make_instance("cal_x")
+    inst.external_refs = ExternalRefs(calendar=cal_ref)
+    store.task_instances[inst.id] = inst
+
+    await todo_sync.async_on_task_created(inst)
+    await hass.async_block_till_done()
+
+    # The task is now linked to a to-do item …
+    assert [i["summary"] for i in items] == ["cal_x"]
+    assert inst.external_refs.todo is not None
+    assert inst.external_refs.todo.item_uid == items[0]["uid"]
+    # … without losing the calendar ref the calendar source relies on.
+    assert inst.external_refs.calendar == cal_ref
+
+    # A second export attempt must not add a duplicate to-do item.
+    await todo_sync.async_on_task_created(inst)
+    await hass.async_block_till_done()
+    assert len(items) == 1
 
 
 async def test_future_task_not_exported_until_due(hass: HomeAssistant) -> None:
