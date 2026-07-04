@@ -62,14 +62,17 @@ def _is_due(rule: TaskRule, on_date: date, existing: list[TaskInstance]) -> bool
         interval = rule.recurrence_interval
         if not interval or interval < 1:
             return False
-        anchor = (
-            _last_completion_date(rule.id, existing) or rule.created_date or on_date
-        )
+        last_completion = _last_completion_date(rule.id, existing)
+        if last_completion is not None:
+            # A full interval must elapse after the last completion before the
+            # rule is due again. Using `delta == 0` here would make a rule
+            # completed today (e.g. an overdue task) immediately due again
+            # today, since 0 % interval is always 0.
+            delta = (on_date - last_completion).days
+            return delta >= interval
+        anchor = rule.created_date or on_date
         delta = (on_date - anchor).days
-        # Also catches overdue rules: if at least one full interval has elapsed
-        # and no open instance exists (guarded by _has_open_instance), generate
-        # the missed instance today rather than waiting for the next exact multiple.
-        return delta >= 0 and (delta % interval == 0 or delta >= interval)
+        return delta >= 0 and delta % interval == 0
 
     return False
 
