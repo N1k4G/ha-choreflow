@@ -52,6 +52,26 @@ def test_every_n_days_anchor_moves_to_last_completion() -> None:
     assert _ids([rule], date(2026, 6, 19), [completed]) == ["inst_2026_06_19_r"]
 
 
+def test_completing_overdue_instance_today_does_not_reappear_today() -> None:
+    """Regression: completing an overdue every-N-days task must not spawn a
+    fresh instance due the same day it was just completed."""
+    rule = make_rule("r", recurrence_interval=3, created_date=date(2026, 6, 1))
+    completed_late = make_instance(
+        "inst_old",
+        rule_id="r",
+        due_date=date(2026, 6, 10),  # originally due days ago
+        status=TaskStatus.COMPLETED,
+        completed_at=datetime(2026, 6, 18, 9, 0, tzinfo=UTC),  # completed today
+    )
+    # Re-evaluating "today" (the completion day) must not create a duplicate.
+    assert _ids([rule], date(2026, 6, 18), [completed_late]) == []
+    # It becomes due again only after a full interval has elapsed.
+    assert _ids([rule], date(2026, 6, 20), [completed_late]) == []
+    assert _ids([rule], date(2026, 6, 21), [completed_late]) == [
+        "inst_2026_06_21_r"
+    ]
+
+
 def test_weekdays_rule() -> None:
     rule = make_rule(
         "r",
