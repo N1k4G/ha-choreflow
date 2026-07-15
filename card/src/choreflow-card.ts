@@ -51,6 +51,15 @@ export class ChoreFlowCard extends LitElement {
   @state() private _historyLoading = false;
   @state() private _historyOffset = 0;
 
+  // Authoritative open-task collection, loaded from choreflow.get_tasks.
+  // The 30-item sensor preview (entities.open_tasks) is only an initial
+  // placeholder until the first full load arrives; it is never the source of truth.
+  @state() private _tasks: ChoreFlowTask[] = [];
+  @state() private _tasksLoading = false;
+  @state() private _tasksLoaded = false;
+  @state() private _tasksError: string | null = null;
+  @state() private _tasksReqToken = 0; // guards against stale responses overwriting newer ones
+
   // ---- card lifecycle ----
 
   public static getConfigElement(): HTMLElement {
@@ -104,6 +113,22 @@ export class ChoreFlowCard extends LitElement {
       this._historyOffset === 0
     ) {
       void this._loadHistory(true);
+    }
+
+    // Reload the authoritative task list only on relevant changes:
+    // - first config / sensor availability
+    // - the configured open-task sensor state object changed (invalidation signal)
+    // - the person filter changed (different backend query)
+    // We deliberately do NOT reload on every unrelated hass state update.
+    if (changed.has("_config")) {
+      void this._loadTasks(this._personFilter);
+      return;
+    }
+    const prevHass = changed.get("hass") as HomeAssistant | undefined;
+    const prevSensor = prevHass?.states[this._config.entities.open_tasks];
+    const curSensor = this._openSensor;
+    if (prevSensor !== curSensor && curSensor) {
+      void this._loadTasks(this._personFilter);
     }
     void changed;
   }
@@ -370,6 +395,73 @@ export class ChoreFlowCard extends LitElement {
     }
   }
 
+  /**
+   * Authoritative open-task loader (issue #24).
+   * Fetches all open-task pages from choreflow.get_tasks sequentially until
+   * has_more is false, replacing the 30-item sensor preview as the source of truth.
+   *
+   * Safeguards:
+   * - offset advances by the number of items actually returned;
+   * - if has_more is true but a page is empty, we stop and surface an error
+   *   instead of looping forever;
+   * - a request token discards stale responses when a newer request supersedes.
+   * Person filter: person === undefined | "all" => all open tasks;
+   * otherwise person_entity=<person> + person_scope="visible".
+   */
+  private async _loadTasks(person?: string): Promise<void> {
+    const token = ++this._tasksReqToken;
+    this._tasksLoading = true;
+    if (this._tasksLoaded) this._tasksError = null; // keep prior list on refresh
+    const all: ChoreFlowTask[] = [];
+    let offset = 0;
+    try {
+      for (;;) {
+        const res = await this.hass.connection.sendMessagePromise<{
+          response?: Page<ChoreFlowTask>;
+        }>({
+          type: "call_service",
+          domain: "choreflow",
+          service: "get_tasks",
+          service_data: {
+            status: "open",
+            ...(person && person !== "all"
+              ? { person_entity: person, person_scope: "visible" }
+              : {}),
+            limit: 100,
+            offset,
+          },
+          return_response: true,
+        });
+        if (token !== this._tasksReqToken) return; // stale request superseded
+        const page = res?.response;
+        if (!page || !Array.isArray(page.items)) {
+          throw new Error("Malformed get_tasks response");
+        }
+        all.push(...page.items);
+        if (!page.has_more) break;
+        if (page.items.length === 0) {
+          throw new Error(
+            "get_tasks reported has_more but returned an empty page; aborting to avoid an infinite loop",
+          );
+        }
+        offset += page.items.length;
+      }
+      if (token !== this._tasksReqToken) return;
+      this._tasks = all;
+      this._tasksLoaded = true;
+      this._tasksError = null;
+    } catch (err) {
+      if (token !== this._tasksReqToken) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      // First load failure: show a retryable error state (no pretend-empty list).
+      // Refresh failure after a prior success: retain the last list, show non-blocking error.
+      if (!this._tasksLoaded) this._tasks = [];
+      this._tasksError = msg;
+    } finally {
+      if (token === this._tasksReqToken) this._tasksLoading = false;
+    }
+  }
+
   private _friendlyError(err: unknown): string {
     const msg = (err as { message?: string })?.message ?? "";
     if (/visib|sicht/i.test(msg)) return "Aufgabe ist dir nicht sichtbar.";
@@ -405,11 +497,14 @@ export class ChoreFlowCard extends LitElement {
   }
 
   private _visibleTasks(): CurrentOpenTask[] {
-    let tasks = this._openTasks().filter((t) => this._rowState[t.task_id] !== "done");
+    // Authoritative result when loaded; otherwise the 30-item sensor preview as
+    // an immediate placeholder until the first full load arrives.
+    const source: CurrentOpenTask[] = this._tasksLoaded ? this._tasks : this._openTasks();
+    let tasks = source.filter((t) => this._rowState[t.task_id] !== "done");
     if (this._roomFilter !== "all") tasks = tasks.filter((t) => t.room === this._roomFilter);
     if (this._categoryFilter !== "all") tasks = tasks.filter((t) => t.category === this._categoryFilter);
-    // Person filter is delegated to get_tasks in production via _refreshFilteredTasks();
-    // the open_tasks attribute is the global, urgency-sorted feed.
+    // Person filtering is delegated to the backend via _loadTasks(person); the
+    // loaded collection already reflects the selected person (or all).
     return tasks.slice().sort((a, b) => {
       const aSnoozed = this._isSnoozed(a);
       const bSnoozed = this._isSnoozed(b);
@@ -419,10 +514,12 @@ export class ChoreFlowCard extends LitElement {
   }
 
   private _rooms(): string[] {
-    return [...new Set(this._openTasks().map((t) => t.room).filter(Boolean))];
+    const source = this._tasksLoaded ? this._tasks : this._openTasks();
+    return [...new Set(source.map((t) => t.room).filter(Boolean))];
   }
   private _categories(): string[] {
-    return [...new Set(this._openTasks().map((t) => t.category).filter(Boolean))];
+    const source = this._tasksLoaded ? this._tasks : this._openTasks();
+    return [...new Set(source.map((t) => t.category).filter(Boolean))];
   }
 
   // ---- render ----
@@ -445,7 +542,7 @@ export class ChoreFlowCard extends LitElement {
       </ha-card>`;
     }
 
-    const open = this._num(this._config.entities.open_tasks) ?? this._openTasks().length;
+    const open = this._num(this._config.entities.open_tasks) ?? (this._tasksLoaded ? this._tasks.length : this._openTasks().length);
     const due = this._num(this._config.entities.due_tasks);
     const overdue = this._num(this._config.entities.overdue_tasks);
     const today = this._num(this._config.entities.completed_today);
@@ -502,9 +599,9 @@ export class ChoreFlowCard extends LitElement {
     return html`
       <div class="filters">
         <div class="seg">
-          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => (this._personFilter = "all")}>Alle</button>
+          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => { this._personFilter = "all"; void this._loadTasks("all"); }}>Alle</button>
           ${(this._config.persons ?? []).map(
-            (p) => html`<button class=${classMap({ on: this._personFilter === p.entity })} @click=${() => (this._personFilter = p.entity)}>${this._personName(p)}</button>`
+            (p) => html`<button class=${classMap({ on: this._personFilter === p.entity })} @click=${() => { this._personFilter = p.entity; void this._loadTasks(p.entity); }}>${this._personName(p)}</button>`
           )}
         </div>
         <select aria-label="Raum filtern" .value=${this._roomFilter} @change=${(e: Event) => (this._roomFilter = (e.target as HTMLSelectElement).value)}>
@@ -519,6 +616,14 @@ export class ChoreFlowCard extends LitElement {
           <ha-icon icon="mdi:view-list"></ha-icon>Nach Raum
         </button>
       </div>
+
+      ${this._tasksError
+        ? html`<div class="task-error">⚠ ${this._tasksError}
+            <button @click=${() => void this._loadTasks(this._personFilter)}>Erneut versuchen</button></div>`
+        : nothing}
+      ${this._tasksLoading && !this._tasksLoaded
+        ? html`<div class="task-loading">Lade Aufgaben…</div>`
+        : nothing}
 
       ${tasks.length === 0
         ? html`<div class="empty"><ha-icon icon="mdi:check"></ha-icon><p>Für diesen Filter ist nichts offen.</p></div>`
