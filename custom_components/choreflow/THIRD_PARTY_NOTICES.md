@@ -1,13 +1,10 @@
-import typescript from "@rollup/plugin-typescript";
-import resolve from "@rollup/plugin-node-resolve";
-import commonjs from "@rollup/plugin-commonjs";
-import terser from "@rollup/plugin-terser";
+# Third-party notices
 
-const dev = process.env.ROLLUP_WATCH;
-const thirdPartyBanner = `/*!
-ChoreFlow card third-party notices
+The ChoreFlow dashboard card bundles the following third-party software.
 
-Lit
+## Lit
+
+Source: <https://github.com/lit/lit>
 
 BSD 3-Clause License
 
@@ -23,9 +20,9 @@ modification, are permitted provided that the following conditions are met:
    this list of conditions and the following disclaimer in the documentation
    and/or other materials provided with the distribution.
 
-3. Neither the name of the copyright holder nor the names of its contributors
-   may be used to endorse or promote products derived from this software
-   without specific prior written permission.
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -38,7 +35,9 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-custom-card-helpers
+## custom-card-helpers
+
+Source: <https://github.com/custom-cards/custom-card-helpers>
 
 MIT License
 
@@ -61,21 +60,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-*/`;
-
-export default {
-  input: "src/choreflow-card.ts",
-  output: {
-    file: "dist/choreflow-card.js",
-    format: "es",
-    sourcemap: dev ? true : false,
-    inlineDynamicImports: true,
-    banner: thirdPartyBanner,
-  },
-  plugins: [
-    resolve(),
-    commonjs(),
-    typescript({ tsconfig: "./tsconfig.json" }),
-    !dev && terser({ format: { comments: /^!/ } }),
-  ],
-};

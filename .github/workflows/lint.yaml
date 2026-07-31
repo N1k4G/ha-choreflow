@@ -38,13 +38,14 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
-      - name: Verify third-party notices
-        run: |
-          grep -Fq "Copyright (c) 2017 Google LLC" dist/choreflow-card.js
-          grep -Fq "Copyright (c) 2019 Custom cards for Home Assistant" dist/choreflow-card.js
-          test -f ../THIRD_PARTY_NOTICES.md
       - name: Verify bundled card matches source
         run: |
           cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js
           git diff --exit-code -- ../custom_components/choreflow/www/choreflow-card.js \
             || (echo "::error::www/choreflow-card.js is stale — rebuild in card/ (npm run build) and copy dist/choreflow-card.js to custom_components/choreflow/www/" && exit 1)
+      - name: Verify distributed third-party notices
+        run: |
+          grep -Fq "Neither the name of the copyright holder nor the names of its contributors" ../custom_components/choreflow/www/choreflow-card.js
+          grep -Fq "The above copyright notice and this permission notice shall be included" ../custom_components/choreflow/www/choreflow-card.js
+          test -f ../custom_components/choreflow/THIRD_PARTY_NOTICES.md
+          cmp ../THIRD_PARTY_NOTICES.md ../custom_components/choreflow/THIRD_PARTY_NOTICES.md

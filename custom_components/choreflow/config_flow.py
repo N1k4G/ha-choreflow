@@ -70,7 +70,7 @@ from .const import (
 
 _IMPORTANCE_OPTIONS = ["high", "normal", "low"]
 _ASSIGNMENT_OPTIONS = ["random", "assigned"]
-_NOTIFY_SERVICE_PATTERN = re.compile(r"^notify\.[a-z0-9_]+$")
+_NOTIFY_SERVICE_PATTERN = re.compile(r"notify\.[a-z0-9_]+")
 
 
 # ---------------------------------------------------------------------------

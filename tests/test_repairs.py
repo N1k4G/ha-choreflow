@@ -61,3 +61,46 @@ async def test_no_issues_when_person_and_notify_present(
         )
         is None
     )
+
+
+async def test_notify_issue_tracks_service_lifecycle_without_reload(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    hass.states.async_set(_PERSON, "home")
+    entry = MockConfigEntry(domain=DOMAIN, data=config_entry_data())
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = ir.async_get(hass)
+    issue_id = f"{entry.entry_id}_missing_notify_service_{_PERSON}"
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    hass.services.async_register("notify", "mobile_app_niklas", lambda call: None)
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+    hass.services.async_remove("notify", "mobile_app_niklas")
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_entry_removal_clears_owned_repair_issues(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data=config_entry_data())
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = ir.async_get(hass)
+    person_issue_id = f"{entry.entry_id}_missing_person_{_PERSON}"
+    notify_issue_id = f"{entry.entry_id}_missing_notify_service_{_PERSON}"
+    assert registry.async_get_issue(DOMAIN, person_issue_id) is not None
+    assert registry.async_get_issue(DOMAIN, notify_issue_id) is not None
+
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert registry.async_get_issue(DOMAIN, person_issue_id) is None
+    assert registry.async_get_issue(DOMAIN, notify_issue_id) is None

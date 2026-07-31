@@ -11,7 +11,12 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import (
+    ATTR_DOMAIN,
+    EVENT_SERVICE_REGISTERED,
+    EVENT_SERVICE_REMOVED,
+    Platform,
+)
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import start as ha_start
 from homeassistant.helpers.event import (
@@ -36,7 +41,7 @@ from .const import (
 from .coordinator import ChoreFlowCoordinator
 from .frontend import async_register_card
 from .notify import parse_action_id
-from .repairs import async_check_issues
+from .repairs import async_check_issues, async_clear_issues
 from .services import async_register_services, async_unregister_services
 from .settings import ChoreFlowSettings
 from .sources.calendar_source import CalendarSource
@@ -79,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     cancel = ha_start.async_at_started(hass, _check_issues_at_start)
     if cancel is not None:
         entry.async_on_unload(cancel)
+    _register_issue_tracking(hass, entry, settings)
 
     async_register_services(hass)
     await async_register_card(hass)
@@ -91,6 +97,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.debug("ChoreFlow entry %s set up", entry.entry_id)
     return True
+
+
+@callback
+def _register_issue_tracking(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    settings: ChoreFlowSettings,
+) -> None:
+    """Re-evaluate notify repair issues as services come and go."""
+
+    @callback
+    def _on_service_change(event: Event) -> None:
+        if event.data.get(ATTR_DOMAIN) == "notify":
+            async_check_issues(hass, entry, settings)
+
+    entry.async_on_unload(
+        hass.bus.async_listen(EVENT_SERVICE_REGISTERED, _on_service_change)
+    )
+    entry.async_on_unload(
+        hass.bus.async_listen(EVENT_SERVICE_REMOVED, _on_service_change)
+    )
 
 
 @callback
@@ -264,9 +291,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unloaded:
-        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        data = hass.data[DOMAIN].get(entry.entry_id)
         if data is not None:
+            await data[DATA_STORE].async_save()
             await data[DATA_LOG_STORE].async_close()
+            hass.data[DOMAIN].pop(entry.entry_id)
         if not hass.data[DOMAIN]:
             async_unregister_services(hass)
 
@@ -281,6 +310,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     store = ChoreFlowStore(hass, entry.entry_id)
     await store.async_remove()
+    async_clear_issues(hass, entry, ChoreFlowSettings.from_entry(entry))
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -72,3 +72,13 @@ def async_check_issues(
             )
         else:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
+@callback
+def async_clear_issues(
+    hass: HomeAssistant, entry: ConfigEntry, settings: ChoreFlowSettings
+) -> None:
+    """Delete every person and notify repair issue owned by an entry."""
+    for person in set(settings.enabled_persons) | set(settings.person_settings):
+        ir.async_delete_issue(hass, DOMAIN, _person_issue_id(entry.entry_id, person))
+        ir.async_delete_issue(hass, DOMAIN, _notify_issue_id(entry.entry_id, person))

@@ -116,6 +116,12 @@ paginated lists.
 See **Developer Tools → Actions** for the full field schemas (also localised
 de/en).
 
+Starter-task imports never delete or rewrite rules that already exist. Homes
+that imported an older pool intentionally keep rules such as
+`seed_hildegard` and `seed_staub_<room>` because users may have customised
+them; delete those rules manually if they are no longer wanted. Importing the
+current pool only adds its missing rule IDs.
+
 ---
 
 ## Dashboard card

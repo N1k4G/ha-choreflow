@@ -5,12 +5,14 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.choreflow.const import (
@@ -19,6 +21,9 @@ from custom_components.choreflow.const import (
     DB_FILENAME,
     DOMAIN,
 )
+
+_REAL_STORE_ASYNC_REMOVE = Store.async_remove
+_REAL_STORE_ASYNC_WRITE_DATA = Store._async_write_data
 
 
 async def test_setup_and_unload_entry(
@@ -64,21 +69,38 @@ async def test_remove_entry_deletes_state_but_keeps_history(
     await hass.async_block_till_done()
 
     store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
-    await store.async_save()
+    state_path = Path(hass.config.path(".storage")) / f"choreflow.{entry.entry_id}"
     database_path = Path(hass.config.path(DB_FILENAME))
     assert database_path.exists()
 
     removed_keys: list[str] = []
 
-    async def capture_remove(state_store: Any) -> None:
+    async def remove_and_record(state_store: Any) -> None:
         removed_keys.append(state_store.key)
+        await _REAL_STORE_ASYNC_REMOVE(state_store)
 
-    with patch(
-        "custom_components.choreflow.store._StateStore.async_remove",
-        new=capture_remove,
+    with (
+        patch(
+            "custom_components.choreflow.store._StateStore._async_write_data",
+            new=_REAL_STORE_ASYNC_WRITE_DATA,
+        ),
+        patch(
+            "custom_components.choreflow.store._StateStore.async_remove",
+            new=remove_and_record,
+        ),
+        patch(
+            "custom_components.choreflow.store.STORE_SAVE_DEBOUNCE_SECONDS",
+            new=0.01,
+        ),
     ):
+        await store.async_save()
+        assert state_path.exists()
+        store.async_schedule_save()
+
         assert await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
+        await asyncio.sleep(0.05)
 
     assert removed_keys == [f"choreflow.{entry.entry_id}"]
+    assert not state_path.exists()
     assert database_path.exists()
