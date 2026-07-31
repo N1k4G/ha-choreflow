@@ -38,6 +38,11 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      - name: Verify third-party notices
+        run: |
+          grep -Fq "Copyright (c) 2017 Google LLC" dist/choreflow-card.js
+          grep -Fq "Copyright (c) 2019 Custom cards for Home Assistant" dist/choreflow-card.js
+          test -f ../THIRD_PARTY_NOTICES.md
       - name: Verify bundled card matches source
         run: |
           cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js

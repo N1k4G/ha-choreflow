@@ -167,4 +167,5 @@ would let the card drop its current workarounds.
 
 ## License
 
-MIT
+MIT. The production bundle also contains third-party software covered by the
+[repository's third-party notices](../THIRD_PARTY_NOTICES.md).

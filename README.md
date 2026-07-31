@@ -160,3 +160,6 @@ cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js
 ## License
 
 [MIT](LICENSE) © 2026 N1k4G
+
+The bundled dashboard card includes third-party software. See
+[Third-party notices](THIRD_PARTY_NOTICES.md) for copyright and license details.
