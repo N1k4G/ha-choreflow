@@ -31,7 +31,7 @@ from custom_components.choreflow.models import (
 )
 from custom_components.choreflow.notify import build_action_id
 
-from .factories import config_entry_data, make_instance
+from .factories import config_entry_data, make_instance, make_rule
 
 _PERSON = "person.niklas"
 
@@ -116,6 +116,92 @@ async def test_create_and_complete_task_services(
     assert store.task_instances[task_id].estimated_duration_minutes == 8
 
 
+async def test_update_task_clears_nullable_fields(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _prereqs(hass)
+    entry = await _setup(hass)
+    store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
+    task = make_instance(
+        "clear-fields",
+        due_date=date.today() + timedelta(days=3),
+        estimated_duration_minutes=15,
+    )
+    task.description = "Clean every surface"
+    store.task_instances[task.id] = task
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_UPDATE_TASK,
+        {
+            "task_id": task.id,
+            "description": None,
+            "due_date": None,
+            "estimated_duration_minutes": None,
+        },
+        blocking=True,
+    )
+
+    assert task.description is None
+    assert task.due_date is None
+    assert task.estimated_duration_minutes is None
+
+
+async def test_update_task_omitted_due_date_is_unchanged(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _prereqs(hass)
+    entry = await _setup(hass)
+    store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
+    due_date = date.today() + timedelta(days=3)
+    task = make_instance("keep-due-date", due_date=due_date)
+    store.task_instances[task.id] = task
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_UPDATE_TASK,
+        {"task_id": task.id, "title": "Updated title"},
+        blocking=True,
+    )
+
+    assert task.title == "Updated title"
+    assert task.due_date == due_date
+
+
+async def test_update_rule_task_propagates_cleared_fields(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _prereqs(hass)
+    entry = await _setup(hass)
+    store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
+    rule = make_rule("rule-clear-fields", estimated_duration_minutes=20)
+    rule.description = "Clean every surface"
+    task = make_instance(
+        "rule-task-clear-fields",
+        rule_id=rule.id,
+        estimated_duration_minutes=20,
+    )
+    task.description = rule.description
+    store.task_rules[rule.id] = rule
+    store.task_instances[task.id] = task
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_UPDATE_TASK,
+        {
+            "task_id": task.id,
+            "description": None,
+            "estimated_duration_minutes": None,
+        },
+        blocking=True,
+    )
+
+    assert task.description is None
+    assert task.estimated_duration_minutes is None
+    assert rule.description is None
+    assert rule.estimated_duration_minutes is None
+
+
 async def test_notification_action_completes_task(
     hass: HomeAssistant, enable_custom_integrations: None
 ) -> None:
@@ -189,6 +275,7 @@ async def test_get_tasks_filters_and_paginates(
     assert response["has_more"] is True
     assert len(response["items"]) == 1
     assert "task_id" in response["items"][0]
+    assert "snooze_until" in response["items"][0]
 
     assigned = await hass.services.async_call(
         DOMAIN,

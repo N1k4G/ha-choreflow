@@ -19,6 +19,7 @@ import type {
 } from "./types";
 
 const HISTORY_PAGE = 10;
+const TASK_PAGE = 100;
 
 type RowState = "idle" | "pending" | "done" | "snoozed";
 
@@ -40,6 +41,13 @@ export class ChoreFlowCard extends LitElement {
   // per-task transient state (optimistic UI + double-click protection)
   @state() private _rowState: Record<string, RowState> = {};
   @state() private _rowError: Record<string, string> = {};
+
+  // Authoritative open tasks loaded through the response service. The sensor
+  // attribute remains a bounded preview while the first request is running.
+  @state() private _tasks: CurrentOpenTask[] | null = null;
+  @state() private _tasksLoading = false;
+  @state() private _tasksError: string | null = null;
+  private _taskRequestGeneration = 0;
 
   // task edit dialog
   @state() private _editForm: EditForm | null = null;
@@ -86,8 +94,12 @@ export class ChoreFlowCard extends LitElement {
       ...config,
       persons: config.persons ?? [],
     };
-    if (config.default_person) this._personFilter = config.default_person;
-    if (config.default_room) this._roomFilter = config.default_room;
+    this._personFilter = config.default_person ?? "all";
+    this._roomFilter = config.default_room ?? "all";
+    this._categoryFilter = "all";
+    this._tasks = null;
+    this._tasksError = null;
+    this._taskRequestGeneration += 1;
   }
 
   public getCardSize(): number {
@@ -95,6 +107,20 @@ export class ChoreFlowCard extends LitElement {
   }
 
   protected updated(changed: PropertyValues): void {
+    const previousHass = changed.get("hass") as HomeAssistant | undefined;
+    const previousConfig = changed.get("_config") as ChoreFlowCardConfig | undefined;
+    const previousOpenSensorEntity =
+      previousConfig?.entities.open_tasks ?? this._config?.entities.open_tasks;
+    const configChanged = changed.has("_config");
+    const openSensorChanged =
+      changed.has("hass") &&
+      (previousOpenSensorEntity ? previousHass?.states[previousOpenSensorEntity] : undefined) !==
+        this._openSensor;
+
+    if (this.hass && this._config && (configChanged || openSensorChanged)) {
+      void this._loadTasks(configChanged || this._tasks === null);
+    }
+
     // Load history the first time the tab is opened.
     if (
       this._tab === "history" &&
@@ -105,19 +131,118 @@ export class ChoreFlowCard extends LitElement {
     ) {
       void this._loadHistory(true);
     }
-    void changed;
   }
 
   // ---- data adapters (read only from hass.states) ----
 
   private get _openSensor() {
-    return this.hass?.states[this._config.entities.open_tasks];
+    const entityId = this._config?.entities.open_tasks;
+    return entityId ? this.hass?.states[entityId] : undefined;
   }
 
   /** open_tasks attribute, normalised. The only place that attribute exists. */
   private _openTasks(): CurrentOpenTask[] {
     const attr = this._openSensor?.attributes?.open_tasks;
     return Array.isArray(attr) ? (attr as CurrentOpenTask[]) : [];
+  }
+
+  /** Full task collection, falling back to the sensor preview on first load. */
+  private _baseTasks(): CurrentOpenTask[] {
+    if (this._tasks !== null) return this._tasks;
+    return this._personFilter === "all" ? this._openTasks() : [];
+  }
+
+  private async _setPersonFilter(personEntity: string): Promise<void> {
+    if (personEntity === this._personFilter && this._tasks !== null) return;
+    this._personFilter = personEntity;
+    this._roomFilter = "all";
+    this._categoryFilter = "all";
+    this._tasks = null;
+    this._tasksError = null;
+    await this._loadTasks(true);
+  }
+
+  private _retryTasks(): void {
+    void this._loadTasks(this._tasks === null);
+  }
+
+  private async _loadTasks(reset: boolean): Promise<void> {
+    const generation = ++this._taskRequestGeneration;
+    const previousTasks = reset ? null : this._tasks;
+    if (reset) this._tasks = null;
+    this._tasksLoading = true;
+    this._tasksError = null;
+
+    const personEntity = this._personFilter === "all" ? undefined : this._personFilter;
+    const items: CurrentOpenTask[] = [];
+    let offset = 0;
+
+    try {
+      while (true) {
+        const serviceData: Record<string, unknown> = {
+          status: "open",
+          person_scope: "visible",
+          limit: TASK_PAGE,
+          offset,
+        };
+        if (personEntity) serviceData.person_entity = personEntity;
+
+        const result = await this.hass.connection.sendMessagePromise<{
+          response?: unknown;
+        }>({
+          type: "call_service",
+          domain: "choreflow",
+          service: "get_tasks",
+          service_data: serviceData,
+          return_response: true,
+        });
+        const page = this._validateTaskPage(result?.response);
+        items.push(...page.items);
+
+        if (!page.has_more) break;
+        if (page.items.length === 0) {
+          throw new Error("get_tasks returned an empty page with has_more=true");
+        }
+        offset += page.items.length;
+      }
+
+      if (generation !== this._taskRequestGeneration) return;
+      this._tasks = items;
+    } catch (err) {
+      if (generation !== this._taskRequestGeneration) return;
+      console.error("[choreflow] get_tasks", err);
+      this._tasks = previousTasks;
+      this._tasksError = "Aufgaben konnten nicht geladen werden.";
+    } finally {
+      if (generation === this._taskRequestGeneration) this._tasksLoading = false;
+    }
+  }
+
+  private _validateTaskPage(value: unknown): { items: CurrentOpenTask[]; has_more: boolean } {
+    if (!value || typeof value !== "object") throw new Error("Invalid get_tasks response");
+    const page = value as Record<string, unknown>;
+    if (!Array.isArray(page.items) || typeof page.has_more !== "boolean") {
+      throw new Error("Invalid get_tasks page");
+    }
+    if (!page.items.every((item) => this._isTask(item))) {
+      throw new Error("Invalid task in get_tasks page");
+    }
+    return { items: page.items, has_more: page.has_more };
+  }
+
+  private _isTask(value: unknown): value is CurrentOpenTask {
+    if (!value || typeof value !== "object") return false;
+    const task = value as Record<string, unknown>;
+    return (
+      typeof task.task_id === "string" &&
+      typeof task.title === "string" &&
+      typeof task.room === "string" &&
+      typeof task.category === "string" &&
+      (task.importance === "low" || task.importance === "normal" || task.importance === "high") &&
+      (task.estimated_duration_minutes == null || typeof task.estimated_duration_minutes === "number") &&
+      (task.due_date == null || typeof task.due_date === "string") &&
+      (task.snooze_until == null || typeof task.snooze_until === "string")
+    );
   }
 
   private _num(entityId?: string): number | null {
@@ -305,13 +430,15 @@ export class ChoreFlowCard extends LitElement {
     const changes: Record<string, unknown> = {
       task_id: f.task_id,
       title: f.title,
+      description: f.description.trim() || null,
       room: f.room || undefined,
       category: f.category || undefined,
       importance: f.importance,
+      due_date: f.due_date || null,
+      estimated_duration_minutes: f.estimated_duration_minutes
+        ? Number(f.estimated_duration_minutes)
+        : null,
     };
-    if (f.description) changes.description = f.description;
-    if (f.due_date) changes.due_date = f.due_date;
-    if (f.estimated_duration_minutes) changes.estimated_duration_minutes = Number(f.estimated_duration_minutes);
     if (f.task_rule_id) {
       changes.recurrence_type = f.recurrence_type;
       if (f.recurrence_type === "every_n_days") {
@@ -396,8 +523,15 @@ export class ChoreFlowCard extends LitElement {
 
   // ---- derived view model ----
 
+  private _localDate(date = new Date()): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
   private _isSnoozed(t: CurrentOpenTask): boolean {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = this._localDate();
     return (
       this._rowState[t.task_id] === "snoozed" ||
       (!!t.snooze_until && t.snooze_until > todayIso)
@@ -405,11 +539,9 @@ export class ChoreFlowCard extends LitElement {
   }
 
   private _visibleTasks(): CurrentOpenTask[] {
-    let tasks = this._openTasks().filter((t) => this._rowState[t.task_id] !== "done");
+    let tasks = this._baseTasks().filter((t) => this._rowState[t.task_id] !== "done");
     if (this._roomFilter !== "all") tasks = tasks.filter((t) => t.room === this._roomFilter);
     if (this._categoryFilter !== "all") tasks = tasks.filter((t) => t.category === this._categoryFilter);
-    // Person filter is delegated to get_tasks in production via _refreshFilteredTasks();
-    // the open_tasks attribute is the global, urgency-sorted feed.
     return tasks.slice().sort((a, b) => {
       const aSnoozed = this._isSnoozed(a);
       const bSnoozed = this._isSnoozed(b);
@@ -419,10 +551,10 @@ export class ChoreFlowCard extends LitElement {
   }
 
   private _rooms(): string[] {
-    return [...new Set(this._openTasks().map((t) => t.room).filter(Boolean))];
+    return [...new Set(this._baseTasks().map((t) => t.room).filter(Boolean))];
   }
   private _categories(): string[] {
-    return [...new Set(this._openTasks().map((t) => t.category).filter(Boolean))];
+    return [...new Set(this._baseTasks().map((t) => t.category).filter(Boolean))];
   }
 
   // ---- render ----
@@ -502,9 +634,9 @@ export class ChoreFlowCard extends LitElement {
     return html`
       <div class="filters">
         <div class="seg">
-          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => (this._personFilter = "all")}>Alle</button>
+          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => void this._setPersonFilter("all")}>Alle</button>
           ${(this._config.persons ?? []).map(
-            (p) => html`<button class=${classMap({ on: this._personFilter === p.entity })} @click=${() => (this._personFilter = p.entity)}>${this._personName(p)}</button>`
+            (p) => html`<button class=${classMap({ on: this._personFilter === p.entity })} @click=${() => void this._setPersonFilter(p.entity)}>${this._personName(p)}</button>`
           )}
         </div>
         <select aria-label="Raum filtern" .value=${this._roomFilter} @change=${(e: Event) => (this._roomFilter = (e.target as HTMLSelectElement).value)}>
@@ -520,7 +652,20 @@ export class ChoreFlowCard extends LitElement {
         </button>
       </div>
 
-      ${tasks.length === 0
+      ${this._tasksLoading
+        ? html`<div class="task-status"><span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>${this._tasks === null ? "Aufgaben werden geladen …" : "Aufgaben werden aktualisiert …"}</div>`
+        : nothing}
+      ${this._tasksError
+        ? html`<div class="task-status task-error">
+            <ha-icon icon="mdi:alert-outline"></ha-icon>
+            <span>${this._tasksError}</span>
+            <button type="button" @click=${() => this._retryTasks()}>Erneut versuchen</button>
+          </div>`
+        : nothing}
+
+      ${tasks.length === 0 && (this._tasksLoading || this._tasksError)
+        ? nothing
+        : tasks.length === 0
         ? html`<div class="empty"><ha-icon icon="mdi:check"></ha-icon><p>Für diesen Filter ist nichts offen.</p></div>`
         : this._groupByRoom
         ? this._groupTasks(tasks)
@@ -919,6 +1064,9 @@ export class ChoreFlowCard extends LitElement {
 
     .filters { padding: 10px 16px; border-bottom: 1px solid var(--divider-color); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .filters select { font: inherit; font-size: 12px; color: var(--primary-text-color); background: var(--primary-background-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .task-status { display: flex; align-items: center; gap: 8px; padding: 10px 16px; font-size: 12px; color: var(--secondary-text-color); border-bottom: 1px solid var(--divider-color); }
+    .task-status.task-error { color: var(--error-color); }
+    .task-status button { margin-left: auto; border: 1px solid var(--divider-color); border-radius: 6px; padding: 5px 8px; color: var(--primary-text-color); background: transparent; font: inherit; cursor: pointer; }
     .chiptoggle { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--divider-color); border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; background: transparent; color: var(--secondary-text-color); }
     .chiptoggle ha-icon { --mdc-icon-size: 14px; }
     .chiptoggle.on { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
