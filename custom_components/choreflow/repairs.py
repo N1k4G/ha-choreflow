@@ -72,3 +72,17 @@ def async_check_issues(
             )
         else:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
+@callback
+def async_clear_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete every ChoreFlow repair issue owned by an entry."""
+    prefix = f"{entry.entry_id}_"
+    registry = ir.async_get(hass)
+    issue_ids = [
+        issue_id
+        for domain, issue_id in registry.issues
+        if domain == DOMAIN and issue_id.startswith(prefix)
+    ]
+    for issue_id in issue_ids:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)

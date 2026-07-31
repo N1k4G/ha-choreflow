@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-HACS-compatible, config-flow-only integration targeting Home Assistant 2026.6,
-CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
+## [1.1.2] - 2026-07-31
+
+### Fixed
+- Accept syntactically valid notify service ids before their integrations have
+  registered the services, and re-evaluate repair issues when notify services
+  are registered or removed.
+- Flush pending state writes before unload and remove entry-scoped `.storage`
+  data and repair issues on uninstall while retaining the durable event log and
+  user exports.
+- Use a smaller generic pool for fresh starter-task imports. Previously
+  imported starter rules are intentionally preserved because users may have
+  customised them and must be deleted manually if no longer wanted.
+- Include the complete Lit and custom-card-helpers license texts in every
+  distributed card bundle and in the HACS integration payload.
+
+## [1.1.1] - 2026-06-30
+
+### Fixed
+- Prevent duplicate to-do items when exporting calendar-created tasks.
+
+## [1.1.0] - 2026-06-28
 
 ### Added — To-do export
 - "Push tasks and completion to to-do" (the former "Sync completion to to-do"
@@ -17,6 +36,11 @@ CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
   and linked back. Creating, completing, reopening and deleting/pruning such a
   task is mirrored to its to-do item. A daily reconcile back-fills tasks that
   become due later and repairs drift.
+
+## [1.0.0] - 2026-06-24
+
+HACS-compatible, config-flow-only integration targeting Home Assistant 2026.6,
+CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
 
 ### Added — MVP 0.1
 - Multi-step config flow and options flow (persons, per-person notify targets,

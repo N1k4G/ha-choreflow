@@ -5,15 +5,29 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.choreflow.const import (
     DATA_LOG_STORE,
     DATA_STORE,
+    DB_FILENAME,
     DOMAIN,
 )
+
+_REAL_STORE_ASYNC_REMOVE = Store.async_remove
+_REAL_STORE_ASYNC_WRITE_DATA = Store._async_write_data
 
 
 async def test_setup_and_unload_entry(
@@ -48,3 +62,52 @@ async def test_options_update_triggers_reload(
     hass.config_entries.async_update_entry(entry, options={"day_end_time": "21:00"})
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_remove_entry_deletes_state_but_keeps_history(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data={"name": "Home"})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
+    state_path = Path(hass.config.path(".storage")) / f"choreflow.{entry.entry_id}"
+    database_path = Path(hass.config.path(DB_FILENAME))
+    assert database_path.exists()
+
+    removed_keys: list[str] = []
+
+    async def remove_and_record(state_store: Any) -> None:
+        removed_keys.append(state_store.key)
+        await _REAL_STORE_ASYNC_REMOVE(state_store)
+
+    # Restore real Store writes because the HA pytest plugin globally mocks them;
+    # the deletion assertion below must exercise an actual storage file.
+    with (
+        patch(
+            "custom_components.choreflow.store._StateStore._async_write_data",
+            new=_REAL_STORE_ASYNC_WRITE_DATA,
+        ),
+        patch(
+            "custom_components.choreflow.store._StateStore.async_remove",
+            new=remove_and_record,
+        ),
+        patch(
+            "custom_components.choreflow.store.STORE_SAVE_DEBOUNCE_SECONDS",
+            new=0.01,
+        ),
+    ):
+        await store.async_save()
+        assert state_path.exists()
+        store.async_schedule_save()
+
+        assert await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=1))
+        await hass.async_block_till_done()
+
+    assert removed_keys == [f"choreflow.{entry.entry_id}"]
+    assert not state_path.exists()
+    assert database_path.exists()

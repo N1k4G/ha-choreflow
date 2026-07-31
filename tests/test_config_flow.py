@@ -58,6 +58,13 @@ async def _drive_to_create(hass: HomeAssistant, flow_id: str) -> dict[str, Any]:
         },
     )
     assert result["step_id"] == "schedule"
+    return await _drive_schedule_to_create(hass, flow_id)
+
+
+async def _drive_schedule_to_create(
+    hass: HomeAssistant, flow_id: str
+) -> dict[str, Any]:
+    """Walk schedule → todo → calendar → create."""
     result = await hass.config_entries.flow.async_configure(
         flow_id,
         {
@@ -132,7 +139,7 @@ async def test_persons_step_requires_a_person(
     assert result["errors"] == {"base": "no_persons"}
 
 
-async def test_person_config_rejects_unknown_notify(
+async def test_person_config_accepts_unregistered_notify_and_rejects_malformed(
     hass: HomeAssistant, enable_custom_integrations: None
 ) -> None:
     _register_prereqs(hass)
@@ -148,7 +155,7 @@ async def test_person_config_rejects_unknown_notify(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
-            "notify_service": "notify.does_not_exist",
+            "notify_service": "mobile_app_missing_prefix",
             "presence_required": True,
             "weekday_push_enabled": True,
             "weekend_push_enabled": True,
@@ -156,6 +163,23 @@ async def test_person_config_rejects_unknown_notify(
     )
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "notify_not_found"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "notify_service": "notify.mobile_app_not_yet_registered",
+            "presence_required": True,
+            "weekday_push_enabled": True,
+            "weekend_push_enabled": True,
+        },
+    )
+    assert result["step_id"] == "schedule"
+    result = await _drive_schedule_to_create(hass, result["flow_id"])
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert (
+        result["data"]["person_settings"][_PERSON]["notify_service"]
+        == "notify.mobile_app_not_yet_registered"
+    )
 
 
 async def test_single_instance_only(
@@ -230,6 +254,81 @@ async def test_options_flow_updates_schedule(
     # Saving options triggers a reload; let it finish so the reloaded
     # coordinator's refresh-interval timer is cancelled cleanly at teardown
     # (otherwise it lingers past the test).
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_options_flow_accepts_unregistered_notify_and_rejects_malformed(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _register_prereqs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled_persons": [_PERSON]}
+    )
+    assert result["step_id"] == "person_config"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "notify_service": "persistent_notification.create",
+            "presence_required": True,
+            "weekday_push_enabled": True,
+            "weekend_push_enabled": True,
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "notify_not_found"}
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "notify_service": "notify.mobile_app_not_yet_registered",
+            "presence_required": True,
+            "weekday_push_enabled": True,
+            "weekend_push_enabled": True,
+        },
+    )
+    assert result["step_id"] == "schedule"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "weekday_start_time": "17:30:00",
+            "weekend_start_time": "10:00:00",
+            "day_end_time": "20:00:00",
+            "max_tasks_per_person_per_day": 5,
+        },
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "enabled": False,
+            "import_new_items": True,
+            "sync_completion_from_todo": True,
+            "sync_completion_to_todo": True,
+            "room": "Allgemein",
+            "category": "Allgemein",
+            "importance": "normal",
+            "assignment_mode": "random",
+        },
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"enabled": False, "summary_contains": "", "due_offset_days": -1},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert (
+        entry.options["person_settings"][_PERSON]["notify_service"]
+        == "notify.mobile_app_not_yet_registered"
+    )
+
     await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

@@ -63,7 +63,7 @@
     },
     "error": {
       "no_persons": "Select at least one person.",
-      "notify_not_found": "That notify service does not exist. Choose an available one."
+      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone."
     },
     "abort": {
       "single_instance_allowed": "ChoreFlow is already configured. Only one instance is supported."
@@ -126,7 +126,7 @@
     },
     "error": {
       "no_persons": "Select at least one person.",
-      "notify_not_found": "That notify service does not exist. Choose an available one."
+      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone."
     }
   },
   "entity": {

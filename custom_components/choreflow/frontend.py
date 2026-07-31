@@ -20,7 +20,10 @@ import logging
 import os
 
 from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.components.http import StaticPathConfig
+
+# isort: split
+# HA 2026.8.0b0 re-exports this implicitly; strict mypy cannot see it.
+from homeassistant.components.http import StaticPathConfig  # type: ignore[attr-defined]
 from homeassistant.core import HomeAssistant
 
 from .const import CARD_FILENAME, CARD_URL

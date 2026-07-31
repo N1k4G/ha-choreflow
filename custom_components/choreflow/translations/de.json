@@ -63,7 +63,7 @@
     },
     "error": {
       "no_persons": "Wähle mindestens eine Person aus.",
-      "notify_not_found": "Dieser Benachrichtigungsdienst existiert nicht. Bitte einen verfügbaren wählen."
+      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein."
     },
     "abort": {
       "single_instance_allowed": "ChoreFlow ist bereits eingerichtet. Es wird nur eine Instanz unterstützt."
@@ -126,7 +126,7 @@
     },
     "error": {
       "no_persons": "Wähle mindestens eine Person aus.",
-      "notify_not_found": "Dieser Benachrichtigungsdienst existiert nicht. Bitte einen verfügbaren wählen."
+      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein."
     }
   },
   "entity": {

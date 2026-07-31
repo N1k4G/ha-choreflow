@@ -39,12 +39,8 @@ class _SeedEntry:
 
 
 _ENTRIES: list[_SeedEntry] = [
-    _SeedEntry("seed_staub_flur", "Staubputzen", "Flur", 30),
-    _SeedEntry("seed_staub_schlafzimmer", "Staubputzen", "Schlafzimmer", 30),
-    _SeedEntry("seed_staub_wohnzimmer", "Staubputzen", "Wohnzimmer", 30),
-    _SeedEntry("seed_staub_esszimmer", "Staubputzen", "Esszimmer", 30),
-    _SeedEntry("seed_staub_arbeitszimmer", "Staubputzen", "Arbeitszimmer", 30),
-    _SeedEntry("seed_hildegard", "Hildegard starten", "Wohnbereich", 7),
+    _SeedEntry("seed_staub_allgemein", "Oberflächen abstauben", "Allgemein", 30),
+    _SeedEntry("seed_boeden_saugen", "Böden saugen", "Allgemein", 7),
     _SeedEntry("seed_badezimmer", "Badezimmer putzen", "Badezimmer", 14),
     _SeedEntry("seed_kueche_putzen", "Küche putzen", "Küche", 14),
     _SeedEntry("seed_kuehlschrank", "Kühlschrank reinigen", "Küche", 182),
@@ -58,7 +54,7 @@ _ENTRIES: list[_SeedEntry] = [
     _SeedEntry(
         "seed_pflanzen",
         "Pflanzen gießen",
-        "Wohnzimmer",
+        "Allgemein",
         7,
         category="Garten",
     ),

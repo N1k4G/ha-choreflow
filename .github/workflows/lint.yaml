@@ -43,3 +43,9 @@ jobs:
           cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js
           git diff --exit-code -- ../custom_components/choreflow/www/choreflow-card.js \
             || (echo "::error::www/choreflow-card.js is stale — rebuild in card/ (npm run build) and copy dist/choreflow-card.js to custom_components/choreflow/www/" && exit 1)
+      - name: Verify distributed third-party notices
+        run: |
+          grep -Fq "Redistributions in binary form must reproduce the above copyright notice" ../custom_components/choreflow/www/choreflow-card.js
+          grep -Fq "The above copyright notice and this permission notice shall be included" ../custom_components/choreflow/www/choreflow-card.js
+          test -f ../custom_components/choreflow/THIRD_PARTY_NOTICES.md
+          cmp ../THIRD_PARTY_NOTICES.md ../custom_components/choreflow/THIRD_PARTY_NOTICES.md
