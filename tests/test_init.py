@@ -6,6 +6,7 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
@@ -67,13 +68,17 @@ async def test_remove_entry_deletes_state_but_keeps_history(
     database_path = Path(hass.config.path(DB_FILENAME))
     assert database_path.exists()
 
+    removed_keys: list[str] = []
+
+    async def capture_remove(state_store: Any) -> None:
+        removed_keys.append(state_store.key)
+
     with patch(
-        "custom_components.choreflow.store._StateStore.async_remove", autospec=True
-    ) as remove_state:
+        "custom_components.choreflow.store._StateStore.async_remove",
+        new=capture_remove,
+    ):
         assert await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
 
-    remove_state.assert_awaited_once()
-    removed_store = remove_state.await_args.args[0]
-    assert removed_store.key == f"choreflow.{entry.entry_id}"
+    assert removed_keys == [f"choreflow.{entry.entry_id}"]
     assert database_path.exists()
