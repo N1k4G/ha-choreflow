@@ -248,6 +248,7 @@ def _register_calendar_source(
             second=0,
         )
     )
+
     def _start_calendar_sync(_hass: HomeAssistant) -> None:
         entry.async_create_background_task(
             hass, calendar_source.async_sync(), name="choreflow_initial_calendar_sync"
@@ -270,6 +271,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_unregister_services(hass)
 
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entry-scoped operational state.
+
+    The SQLite event log and user-created exports are retained deliberately so
+    uninstalling the integration does not destroy long-term household history.
+    """
+    store = ChoreFlowStore(hass, entry.entry_id)
+    await store.async_remove()
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

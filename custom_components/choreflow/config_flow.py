@@ -4,11 +4,12 @@ Multi-step setup: instance name → enabled persons → per-person push settings
 schedule → to-do sync → calendar sync. The options flow walks the same steps,
 pre-filled from the current configuration, and writes to the entry options so a
 change triggers a reload (§5.5/Lastenheft §21.2). Inputs are validated (person
-entities and notify services must exist).
+entities must exist and notify service ids must be syntactically valid).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -69,6 +70,7 @@ from .const import (
 
 _IMPORTANCE_OPTIONS = ["high", "normal", "low"]
 _ASSIGNMENT_OPTIONS = ["random", "assigned"]
+_NOTIFY_SERVICE_PATTERN = re.compile(r"^notify\.[a-z0-9_]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +80,11 @@ def _notify_services(hass: HomeAssistant) -> list[str]:
     """Return the available ``notify.*`` service ids, sorted."""
     services = hass.services.async_services().get("notify", {})
     return sorted(f"notify.{name}" for name in services)
+
+
+def _valid_notify_service(value: str) -> bool:
+    """Return whether a notify service id is syntactically valid."""
+    return _NOTIFY_SERVICE_PATTERN.fullmatch(value) is not None
 
 
 def _normalise_time(value: str) -> str:
@@ -325,7 +332,7 @@ class ChoreFlowConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None and self._current_person is not None:
             notify_service = user_input[CONF_NOTIFY_SERVICE]
-            if notify_service not in _notify_services(self.hass):
+            if not _valid_notify_service(notify_service):
                 errors["base"] = "notify_not_found"
             else:
                 self._person_settings[self._current_person] = user_input
@@ -446,7 +453,7 @@ class ChoreFlowOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
         existing = self._current.get(CONF_PERSON_SETTINGS, {})
         if user_input is not None and self._current_person is not None:
-            if user_input[CONF_NOTIFY_SERVICE] not in _notify_services(self.hass):
+            if not _valid_notify_service(user_input[CONF_NOTIFY_SERVICE]):
                 errors["base"] = "notify_not_found"
             else:
                 self._person_settings[self._current_person] = user_input

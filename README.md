@@ -19,9 +19,11 @@ logs everything for long-term insight.
 - Importance `high` / `normal` / `low`, rooms, categories, visibility and
   assignment (fixed person or random).
 - **Presence-aware push chain**: starts at 17:30 (weekdays) / 10:00 (weekends),
-  catches up on return until the 20:00 day end, max five tasks per person/day.
-  One task per push with **Done / Snooze / Open dashboard** actions handled by
-  ChoreFlow itself (no user automation needed).
+  catches up on return until the 20:00 day end, and sends at most five tasks
+  per person/day. By default the chain stops after that person's first
+  completion of the day; disable `skip_push_after_daily_completion` to use the
+  full daily maximum. One task per push with **Done / Snooze / Open dashboard**
+  actions is handled by ChoreFlow itself (no user automation needed).
 - Smart selection: urgency pool → per-person top-5 → soft rotation, room
   bundling for follow-ups, and `high` tasks protected from starvation.
 - Reservations prevent double work; time-critical `high` tasks may go to several
@@ -71,8 +73,8 @@ through:
 
 All values are editable later via the integration's **Configure** (options).
 
-You manage task rules and one-off tasks through the services below (a Lovelace
-card can be added later — the backend already exposes everything it needs).
+You manage task rules and one-off tasks through the bundled Lovelace card or
+the services below.
 
 ---
 
@@ -99,7 +101,9 @@ paginated lists.
 | `choreflow.update_task` | Update fields of a task. |
 | `choreflow.delete_task` | Delete a task. |
 | `choreflow.complete_task` | Mark a task completed (and push the next). |
+| `choreflow.reopen_task` | Reopen a completed task and correct its state. |
 | `choreflow.snooze_task` | Postpone the reminder (keeps the due date). |
+| `choreflow.import_seed_tasks` | Import the generic starter task pool idempotently. |
 | `choreflow.start_daily_flow` | Start the daily push chain (one/all persons). |
 | `choreflow.send_next_task` | Advance a person's chain. |
 | `choreflow.sync_todo` | Run a to-do synchronisation now. |
@@ -154,6 +158,16 @@ npm run lint   # tsc --noEmit
 npm run build  # → dist/choreflow-card.js
 cp dist/choreflow-card.js ../custom_components/choreflow/www/choreflow-card.js
 ```
+
+---
+
+## Removal and retained data
+
+Removing the integration deletes its entry-scoped operational state from Home
+Assistant's `.storage` directory. The long-term `choreflow.db` event log and
+files in `choreflow_exports/` are retained deliberately so uninstalling does
+not destroy household history; they can be removed manually if no longer
+needed.
 
 ---
 

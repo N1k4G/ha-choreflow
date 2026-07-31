@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Accept syntactically valid notify service ids before their integrations have
+  registered the services.
+- Remove entry-scoped `.storage` data on uninstall while retaining the durable
+  event log and user exports.
+- Replace household-specific starter tasks with a smaller generic seed pool.
+- Restore required license notices for dependencies bundled into the card.
+
+## [1.1.1] - 2026-06-30
+
 HACS-compatible, config-flow-only integration targeting Home Assistant 2026.6,
 CI via hassfest, HACS validation, ruff, mypy (`--strict`) and pytest.
 
