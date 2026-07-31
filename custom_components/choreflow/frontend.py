@@ -20,7 +20,7 @@ import logging
 import os
 
 from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.http import StaticPathConfig  # type: ignore[attr-defined]
 from homeassistant.core import HomeAssistant
 
 from .const import CARD_FILENAME, CARD_URL

@@ -5,10 +5,11 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.choreflow.const import (
@@ -61,7 +62,7 @@ async def test_global_and_person_sensor_counts(
     _prereqs(hass)
     entry = await _setup(hass)
 
-    today = date.today()
+    today = dt_util.now().date()
     store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
     for inst in (
         make_instance("inst_due", due_date=today),
@@ -91,7 +92,7 @@ async def test_open_tasks_attribute_list(
     _prereqs(hass)
     entry = await _setup(hass)
 
-    today = date.today()
+    today = dt_util.now().date()
     store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
     inst = make_instance(
         "inst_due",
@@ -141,7 +142,7 @@ async def test_completed_today_from_log(
     entry = await _setup(hass)
 
     log_store = hass.data[DOMAIN][entry.entry_id][DATA_LOG_STORE]
-    now = datetime.now(UTC)
+    now = dt_util.now()
     await log_store.async_add_event(
         LogEvent(
             event_id="e1",
@@ -165,7 +166,7 @@ async def test_chain_sensor_exposes_daily_status(
     _prereqs(hass)
     entry = await _setup(hass)
 
-    today = date.today()
+    today = dt_util.now().date()
     store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
     current = make_instance("current", due_date=today)
     store.task_instances[current.id] = current
@@ -183,7 +184,7 @@ async def test_chain_sensor_exposes_daily_status(
         LogEvent(
             event_id="chain-complete",
             event_type=EVENT_TASK_COMPLETED,
-            timestamp=datetime.now(UTC),
+            timestamp=dt_util.now(),
             person_entity=_PERSON,
             completion_source="dashboard",
         )

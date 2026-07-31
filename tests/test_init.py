@@ -6,6 +6,7 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -63,13 +64,16 @@ async def test_remove_entry_deletes_state_but_keeps_history(
 
     store = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
     await store.async_save()
-    state_path = Path(hass.config.path(".storage", f"choreflow.{entry.entry_id}"))
     database_path = Path(hass.config.path(DB_FILENAME))
-    assert state_path.exists()
     assert database_path.exists()
 
-    assert await hass.config_entries.async_remove(entry.entry_id)
-    await hass.async_block_till_done()
+    with patch(
+        "custom_components.choreflow.store._StateStore.async_remove", autospec=True
+    ) as remove_state:
+        assert await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
 
-    assert not state_path.exists()
+    remove_state.assert_awaited_once()
+    removed_store = remove_state.await_args.args[0]
+    assert removed_store.key == f"choreflow.{entry.entry_id}"
     assert database_path.exists()
