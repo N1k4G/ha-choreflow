@@ -75,10 +75,14 @@ def async_check_issues(
 
 
 @callback
-def async_clear_issues(
-    hass: HomeAssistant, entry: ConfigEntry, settings: ChoreFlowSettings
-) -> None:
-    """Delete every person and notify repair issue owned by an entry."""
-    for person in set(settings.enabled_persons) | set(settings.person_settings):
-        ir.async_delete_issue(hass, DOMAIN, _person_issue_id(entry.entry_id, person))
-        ir.async_delete_issue(hass, DOMAIN, _notify_issue_id(entry.entry_id, person))
+def async_clear_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete every ChoreFlow repair issue owned by an entry."""
+    prefix = f"{entry.entry_id}_"
+    registry = ir.async_get(hass)
+    issue_ids = [
+        issue_id
+        for domain, issue_id in registry.issues
+        if domain == DOMAIN and issue_id.startswith(prefix)
+    ]
+    for issue_id in issue_ids:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)

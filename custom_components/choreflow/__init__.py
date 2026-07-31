@@ -291,13 +291,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unloaded:
-        data = hass.data[DOMAIN].get(entry.entry_id)
-        if data is not None:
-            await data[DATA_STORE].async_save()
-            await data[DATA_LOG_STORE].async_close()
-            hass.data[DOMAIN].pop(entry.entry_id)
-        if not hass.data[DOMAIN]:
-            async_unregister_services(hass)
+        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        try:
+            if data is not None:
+                try:
+                    await data[DATA_STORE].async_save()
+                finally:
+                    await data[DATA_LOG_STORE].async_close()
+        finally:
+            if not hass.data[DOMAIN]:
+                async_unregister_services(hass)
 
     return unloaded
 
@@ -310,7 +313,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     store = ChoreFlowStore(hass, entry.entry_id)
     await store.async_remove()
-    async_clear_issues(hass, entry, ChoreFlowSettings.from_entry(entry))
+    async_clear_issues(hass, entry)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

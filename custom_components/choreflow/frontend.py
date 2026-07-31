@@ -20,12 +20,14 @@ import logging
 import os
 
 from homeassistant.components.frontend import add_extra_js_url
+
+# isort: split
+# HA 2026.8.0b0 re-exports this implicitly; strict mypy cannot see it.
 from homeassistant.components.http import StaticPathConfig  # type: ignore[attr-defined]
 from homeassistant.core import HomeAssistant
 
 from .const import CARD_FILENAME, CARD_URL
 
-# HA 2026.7 re-exports StaticPathConfig implicitly; strict mypy cannot see it.
 _LOGGER = logging.getLogger(__name__)
 
 # Static path can only be registered once per HA instance.

@@ -5,7 +5,7 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
-import asyncio
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -13,7 +13,11 @@ from unittest.mock import patch
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.choreflow.const import (
     DATA_LOG_STORE,
@@ -79,6 +83,8 @@ async def test_remove_entry_deletes_state_but_keeps_history(
         removed_keys.append(state_store.key)
         await _REAL_STORE_ASYNC_REMOVE(state_store)
 
+    # Restore real Store writes because the HA pytest plugin globally mocks them;
+    # the deletion assertion below must exercise an actual storage file.
     with (
         patch(
             "custom_components.choreflow.store._StateStore._async_write_data",
@@ -99,7 +105,8 @@ async def test_remove_entry_deletes_state_but_keeps_history(
 
         assert await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
-        await asyncio.sleep(0.05)
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=1))
+        await hass.async_block_till_done()
 
     assert removed_keys == [f"choreflow.{entry.entry_id}"]
     assert not state_path.exists()
