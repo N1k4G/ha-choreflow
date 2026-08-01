@@ -235,6 +235,12 @@ async def test_initial_flow_validates_and_persists_assigned_import_person(
     assert defaults["assignment_mode"] == "assigned"
     assert defaults["assignment_person"] == _PERSON
 
+    # Creating the entry starts an initial to-do sync as a background task.
+    # Drain it explicitly before teardown so the test does not leak the task.
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert await hass.config_entries.async_unload(result["result"].entry_id)
+    await hass.async_block_till_done()
+
 
 async def test_persons_step_requires_a_person(
     hass: HomeAssistant, enable_custom_integrations: None
@@ -411,7 +417,7 @@ async def test_options_flow_validates_and_persists_assigned_import_person(
     assert defaults["assignment_mode"] == "assigned"
     assert defaults["assignment_person"] == _PERSON
 
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
@@ -423,7 +429,7 @@ async def test_options_flow_random_clears_stale_assignment_person(
     entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     result = await _drive_options_to_todo(hass, entry)
 
     result = await hass.config_entries.options.async_configure(
