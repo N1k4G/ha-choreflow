@@ -310,7 +310,7 @@ async def _export_to_calendar(
         due_date = due
     else:
         due_date = date.fromisoformat(str(due))
-    summary = fields.get("title", "ChoreFlow-Aufgabe")
+    summary = fields.get("title", "ChoreFlow task")
     description = fields.get("description") or ""
     if not description:
         room = fields.get("room", "")

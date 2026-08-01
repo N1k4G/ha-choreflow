@@ -166,7 +166,7 @@ class CalendarSource:
         return TaskInstance(
             id=task_id,
             rule_id=ref.task_rule_id,
-            title=summary or "Kalenderaufgabe",
+            title=summary or "Calendar task",
             description=None,
             room=DEFAULT_CALENDAR_ROOM,
             category=DEFAULT_CALENDAR_CATEGORY,

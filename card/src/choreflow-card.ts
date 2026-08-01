@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 
 import "./choreflow-card-editor";
+import { formatLocale, localize, type TranslationKey } from "./localize";
 
 import type {
   ChoreFlowCardConfig,
@@ -63,6 +64,13 @@ export class ChoreFlowCard extends LitElement {
   @state() private _historyLoading = false;
   @state() private _historyOffset = 0;
 
+  private _t(
+    key: TranslationKey,
+    replacements: Record<string, string | number> = {}
+  ): string {
+    return localize(this.hass, key, replacements);
+  }
+
   // ---- card lifecycle ----
 
   public static getConfigElement(): HTMLElement {
@@ -71,7 +79,7 @@ export class ChoreFlowCard extends LitElement {
 
   public static getStubConfig(): Partial<ChoreFlowCardConfig> {
     return {
-      title: "Haushalt",
+      title: "ChoreFlow",
       entities: {
         open_tasks: "sensor.choreflow_open_tasks",
         due_tasks: "sensor.choreflow_due_tasks",
@@ -89,7 +97,7 @@ export class ChoreFlowCard extends LitElement {
   public setConfig(config: ChoreFlowCardConfig): void {
     if (!config || !config.entities || !config.entities.open_tasks) {
       throw new Error(
-        "choreflow-card: 'entities.open_tasks' ist erforderlich (z. B. sensor.choreflow_open_tasks)."
+        "choreflow-card: 'entities.open_tasks' is required (for example sensor.choreflow_open_tasks)."
       );
     }
     const previous = this._config;
@@ -270,7 +278,7 @@ export class ChoreFlowCard extends LitElement {
       if (generation !== this._taskRequestGeneration) return;
       console.error("[choreflow] get_tasks", err);
       this._tasks = previousTasks;
-      this._tasksError = "Aufgaben konnten nicht geladen werden.";
+      this._tasksError = this._t("task.load_error");
     } finally {
       if (generation === this._taskRequestGeneration) {
         if (this._taskRefreshTimer !== undefined) {
@@ -330,7 +338,7 @@ export class ChoreFlowCard extends LitElement {
   // ---- date helpers ----
 
   private _dueInfo(due: string | null) {
-    if (!due) return { label: "Kein Termin", overdueDays: 0, isOverdue: false, isToday: false, rank: 100 };
+    if (!due) return { label: this._t("due.none"), overdueDays: 0, isOverdue: false, isToday: false, rank: 100 };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const d = new Date(due + "T00:00:00");
@@ -338,17 +346,17 @@ export class ChoreFlowCard extends LitElement {
     if (diff < 0) {
       const n = -diff;
       return {
-        label: n === 1 ? "Gestern" : `vor ${n} Tagen`,
+        label: n === 1 ? this._t("date.yesterday") : this._t("date.days_ago", { count: n }),
         overdueDays: n,
         isOverdue: true,
         isToday: false,
         rank: 1000 + n,
       };
     }
-    if (diff === 0) return { label: "Heute", overdueDays: 0, isOverdue: false, isToday: true, rank: 600 };
-    if (diff === 1) return { label: "Morgen", overdueDays: 0, isOverdue: false, isToday: false, rank: 300 };
+    if (diff === 0) return { label: this._t("date.today"), overdueDays: 0, isOverdue: false, isToday: true, rank: 600 };
+    if (diff === 1) return { label: this._t("date.tomorrow"), overdueDays: 0, isOverdue: false, isToday: false, rank: 300 };
     return {
-      label: d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }),
+      label: d.toLocaleDateString(formatLocale(this.hass), { weekday: "short", day: "2-digit", month: "2-digit" }),
       overdueDays: 0,
       isOverdue: false,
       isToday: false,
@@ -362,10 +370,11 @@ export class ChoreFlowCard extends LitElement {
     const sameDay = d.toDateString() === now.toDateString();
     const yest = new Date(now);
     yest.setDate(now.getDate() - 1);
-    const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    if (sameDay) return `Heute ${time}`;
-    if (d.toDateString() === yest.toDateString()) return `Gestern ${time}`;
-    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+    const locale = formatLocale(this.hass);
+    const time = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+    if (sameDay) return this._t("date.today_time", { time });
+    if (d.toDateString() === yest.toDateString()) return this._t("date.yesterday_time", { time });
+    return d.toLocaleDateString(locale, { weekday: "short", day: "2-digit", month: "2-digit" });
   }
 
   // ---- services (Home Assistant service API only) ----
@@ -505,7 +514,7 @@ export class ChoreFlowCard extends LitElement {
       duration !== null &&
       (!Number.isInteger(duration) || duration < 1 || duration > 1440)
     ) {
-      this._editError = "Die Dauer muss eine ganze Zahl zwischen 1 und 1440 Minuten sein.";
+      this._editError = this._t("edit.duration_error");
       return;
     }
 
@@ -582,11 +591,11 @@ export class ChoreFlowCard extends LitElement {
 
   private _friendlyError(err: unknown): string {
     const msg = (err as { message?: string })?.message ?? "";
-    if (/visib|sicht/i.test(msg)) return "Aufgabe ist dir nicht sichtbar.";
-    if (/assign|zuweis/i.test(msg)) return "Aufgabe ist dir nicht zugewiesen.";
-    if (/not open|nicht offen|unknown|unbekannt/i.test(msg)) return "Aufgabe ist nicht mehr offen.";
-    if (/person/i.test(msg)) return "Person ist nicht aktiviert.";
-    return "Aktion fehlgeschlagen.";
+    if (/visib|sicht/i.test(msg)) return this._t("error.not_visible");
+    if (/assign|zuweis/i.test(msg)) return this._t("error.not_assigned");
+    if (/not open|nicht offen|unknown|unbekannt/i.test(msg)) return this._t("error.not_open");
+    if (/person/i.test(msg)) return this._t("error.person_disabled");
+    return this._t("error.action_failed");
   }
 
   private _setRow(id: string, s: RowState) {
@@ -650,10 +659,9 @@ export class ChoreFlowCard extends LitElement {
         <div class="error">
           <ha-icon icon="mdi:alert"></ha-icon>
           <div>
-            <div class="error-title">ChoreFlow nicht verfügbar</div>
+            <div class="error-title">${this._t("card.unavailable")}</div>
             <div class="error-body">
-              Der Pflicht-Sensor <code>${this._config.entities.open_tasks}</code> wurde nicht gefunden.
-              Prüfe die Card-Konfiguration und die ChoreFlow-Integration.
+              ${this._t("card.sensor_missing", { entity: this._config.entities.open_tasks })}
             </div>
           </div>
         </div>
@@ -670,17 +678,17 @@ export class ChoreFlowCard extends LitElement {
         <div class="head">
           <div class="title">
             <span class="title-text">${this._config.title ?? "ChoreFlow"}</span>
-            <span class="sub">${open} offen</span>
+            <span class="sub">${this._t("count.open", { count: open })}</span>
           </div>
           <div class="head-actions">
             ${this._config.show_history
               ? html`<div class="seg" role="tablist">
-                  <button role="tab" class=${classMap({ on: this._tab === "tasks" })} @click=${() => (this._tab = "tasks")}>Aufgaben</button>
-                  <button role="tab" class=${classMap({ on: this._tab === "history" })} @click=${() => (this._tab = "history")}>Verlauf</button>
+                  <button role="tab" class=${classMap({ on: this._tab === "tasks" })} @click=${() => (this._tab = "tasks")}>${this._t("tab.tasks")}</button>
+                  <button role="tab" class=${classMap({ on: this._tab === "history" })} @click=${() => (this._tab = "history")}>${this._t("tab.history")}</button>
                 </div>`
               : nothing}
             ${this._config.show_create
-              ? html`<button class="icon-btn primary" aria-label="Aufgabe erstellen" title="Aufgabe erstellen" @click=${() => (this._dialogOpen = true)}>
+              ? html`<button class="icon-btn primary" aria-label=${this._t("action.create")} title=${this._t("action.create")} @click=${() => (this._dialogOpen = true)}>
                   <ha-icon icon="mdi:plus"></ha-icon>
                 </button>`
               : nothing}
@@ -688,9 +696,9 @@ export class ChoreFlowCard extends LitElement {
         </div>
 
         <div class="stats">
-          ${this._stat(open, "Offen")} ${this._stat(due, "Fällig")}
-          ${this._stat(overdue, "Überfällig", overdue && overdue > 0 ? "error" : "")}
-          ${this._stat(today, "Heute erledigt")}
+          ${this._stat(open, this._t("stat.open"))} ${this._stat(due, this._t("stat.due"))}
+          ${this._stat(overdue, this._t("stat.overdue"), overdue && overdue > 0 ? "error" : "")}
+          ${this._stat(today, this._t("stat.completed_today"))}
         </div>
 
         ${this._tab === "tasks" ? this._renderTasks() : this._renderHistory()}
@@ -718,34 +726,34 @@ export class ChoreFlowCard extends LitElement {
     return html`
       <div class="filters">
         <div class="seg">
-          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => void this._setPersonFilter("all")}>Alle</button>
+          <button class=${classMap({ on: this._personFilter === "all" })} @click=${() => void this._setPersonFilter("all")}>${this._t("filter.all")}</button>
           ${(this._config.persons ?? []).map(
             (p) => html`<button class=${classMap({ on: this._personFilter === p.entity })} @click=${() => void this._setPersonFilter(p.entity)}>${this._personName(p)}</button>`
           )}
         </div>
-        <select aria-label="Raum filtern" .value=${this._roomFilter} @change=${(e: Event) => (this._roomFilter = (e.target as HTMLSelectElement).value)}>
-          <option value="all">Alle Räume</option>
+        <select aria-label=${this._t("filter.room_aria")} .value=${this._roomFilter} @change=${(e: Event) => (this._roomFilter = (e.target as HTMLSelectElement).value)}>
+          <option value="all">${this._t("filter.all_rooms")}</option>
           ${rooms.map((r) => html`<option value=${r}>${r}</option>`)}
         </select>
-        <select aria-label="Kategorie filtern" .value=${this._categoryFilter} @change=${(e: Event) => (this._categoryFilter = (e.target as HTMLSelectElement).value)}>
-          <option value="all">Alle Kategorien</option>
+        <select aria-label=${this._t("filter.category_aria")} .value=${this._categoryFilter} @change=${(e: Event) => (this._categoryFilter = (e.target as HTMLSelectElement).value)}>
+          <option value="all">${this._t("filter.all_categories")}</option>
           ${categories.map((c) => html`<option value=${c}>${c}</option>`)}
         </select>
         <button class=${classMap({ chiptoggle: true, on: this._groupByRoom })} @click=${() => (this._groupByRoom = !this._groupByRoom)}>
-          <ha-icon icon="mdi:view-list"></ha-icon>Nach Raum
+          <ha-icon icon="mdi:view-list"></ha-icon>${this._t("filter.group_room")}
         </button>
       </div>
 
       ${this._tasksLoading && this._tasks === null
-        ? html`<div class="task-status"><span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>Aufgaben werden geladen …</div>`
+        ? html`<div class="task-status"><span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>${this._t("tasks.loading")}</div>`
         : this._showTaskRefresh
-        ? html`<div class="task-status"><span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>Aufgaben werden aktualisiert …</div>`
+        ? html`<div class="task-status"><span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>${this._t("tasks.refreshing")}</div>`
         : nothing}
       ${this._tasksError
         ? html`<div class="task-status task-error">
             <ha-icon icon="mdi:alert-outline"></ha-icon>
             <span>${this._tasksError}</span>
-            <button type="button" @click=${() => this._retryTasks()}>Erneut versuchen</button>
+            <button type="button" @click=${() => this._retryTasks()}>${this._t("action.retry")}</button>
           </div>`
         : nothing}
       ${truncatedPreview
@@ -753,8 +761,8 @@ export class ChoreFlowCard extends LitElement {
             <ha-icon icon="mdi:information-outline"></ha-icon>
             <span>
               ${truncatedPreview.total !== null
-                ? `Teilansicht: ${truncatedPreview.shown} von ${truncatedPreview.total} offenen Aufgaben werden aus der Sensor-Vorschau angezeigt.`
-                : "Teilansicht: Die Sensor-Vorschau ist gekürzt; weitere offene Aufgaben sind derzeit nicht geladen."}
+                ? this._t("tasks.preview_total", { shown: truncatedPreview.shown, total: truncatedPreview.total })
+                : this._t("tasks.preview_truncated")}
             </span>
           </div>`
         : nothing}
@@ -762,7 +770,7 @@ export class ChoreFlowCard extends LitElement {
       ${tasks.length === 0 && this._tasks === null && (this._tasksLoading || this._tasksError)
         ? nothing
         : tasks.length === 0
-        ? html`<div class="empty"><ha-icon icon="mdi:check"></ha-icon><p>Für diesen Filter ist nichts offen.</p></div>`
+        ? html`<div class="empty"><ha-icon icon="mdi:check"></ha-icon><p>${this._t("tasks.empty")}</p></div>`
         : this._groupByRoom
         ? this._groupTasks(tasks)
         : html`<div class="list">${tasks.map((t) => this._renderRow(t))}</div>`}
@@ -772,7 +780,7 @@ export class ChoreFlowCard extends LitElement {
   private _groupTasks(tasks: CurrentOpenTask[]): TemplateResult {
     const groups = new Map<string, CurrentOpenTask[]>();
     for (const t of tasks) {
-      const k = t.room || "Ohne Raum";
+      const k = t.room || this._t("tasks.no_room");
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k)!.push(t);
     }
@@ -804,23 +812,26 @@ export class ChoreFlowCard extends LitElement {
     let urgLabel = "";
     if (due.isOverdue) {
       urgIcon = "mdi:alert";
-      urgLabel = `Überfällig · ${due.overdueDays} ${due.overdueDays === 1 ? "Tag" : "Tage"}`;
+      urgLabel = this._t("urgency.overdue", {
+        count: due.overdueDays,
+        unit: this._t(due.overdueDays === 1 ? "unit.day" : "unit.days"),
+      });
     } else if (due.isToday && t.importance === "high") {
       urgIcon = "mdi:alert-circle";
-      urgLabel = "Heute fällig · Wichtig";
+      urgLabel = this._t("urgency.today_important");
     } else if (due.isToday) {
       urgIcon = "mdi:clock-outline";
-      urgLabel = "Heute fällig";
+      urgLabel = this._t("urgency.today");
     } else if (t.importance === "high" && daysUntil !== null && daysUntil <= 2) {
       urgIcon = "mdi:chevron-up";
-      urgLabel = daysUntil === 1 ? "Morgen fällig · Wichtig" : "Bald fällig · Wichtig";
+      urgLabel = daysUntil === 1 ? this._t("urgency.tomorrow_important") : this._t("urgency.soon_important");
     }
     const rs = this._rowState[t.task_id] ?? "idle";
     const isSnoozed = this._isSnoozed(t);
     const err = this._rowError[t.task_id];
     const hasId = !!t.task_id;
     const meta = [t.room, t.category];
-    if (t.estimated_duration_minutes) meta.push(`${t.estimated_duration_minutes} Min`);
+    if (t.estimated_duration_minutes) meta.push(`${t.estimated_duration_minutes} ${this._t("unit.minutes_short")}`);
 
     return html`<div class=${classMap({ row: true, [urgClass]: true, settled: rs === "done", "row-snoozed": isSnoozed })}>
       <div class="row-main">
@@ -832,29 +843,29 @@ export class ChoreFlowCard extends LitElement {
           ${urgLabel ? html`<span class="urg ${urgClass}"><ha-icon icon=${urgIcon}></ha-icon>${urgLabel}</span>` : nothing}
           <span class="meta-text">${urgLabel ? "· " : ""}${meta.join(" · ")}</span>
         </div>
-        ${isSnoozed ? html`<div class="snooze-badge"><ha-icon icon="mdi:clock-outline"></ha-icon>Aufgeschoben bis morgen</div>` : nothing}
+        ${isSnoozed ? html`<div class="snooze-badge"><ha-icon icon="mdi:clock-outline"></ha-icon>${this._t("task.snoozed_tomorrow")}</div>` : nothing}
         ${err ? html`<div class="row-error"><ha-icon icon="mdi:alert"></ha-icon>${err}</div>` : nothing}
       </div>
       <div class="row-actions">
         ${rs === "pending"
           ? html`<span class="spin"><ha-icon icon="mdi:loading"></ha-icon></span>`
           : rs === "done"
-          ? html`<span class="settle ok"><ha-icon icon="mdi:check-circle"></ha-icon>Erledigt</span>`
+          ? html`<span class="settle ok"><ha-icon icon="mdi:check-circle"></ha-icon>${this._t("task.completed")}</span>`
           : isSnoozed
           ? html`
-              <button class="icon-btn ok" aria-label="Erledigen" title="Erledigen" @click=${() => this._completeTask(t.task_id)}>
+              <button class="icon-btn ok" aria-label=${this._t("action.complete")} title=${this._t("action.complete")} @click=${() => this._completeTask(t.task_id)}>
                 <ha-icon icon="mdi:check-circle"></ha-icon>
               </button>
             `
           : hasId
           ? html`
-              <button class="icon-btn" aria-label="Bearbeiten" title="Bearbeiten" @click=${() => this._openEdit(t.task_id)}>
+              <button class="icon-btn" aria-label=${this._t("action.edit")} title=${this._t("action.edit")} @click=${() => this._openEdit(t.task_id)}>
                 <ha-icon icon="mdi:pencil"></ha-icon>
               </button>
-              <button class="icon-btn" aria-label="Später erinnern" title="Später erinnern" @click=${() => this._snoozeTask(t.task_id)}>
+              <button class="icon-btn" aria-label=${this._t("action.snooze")} title=${this._t("action.snooze")} @click=${() => this._snoozeTask(t.task_id)}>
                 <ha-icon icon="mdi:clock-outline"></ha-icon>
               </button>
-              <button class="icon-btn ok" aria-label="Erledigen" title="Erledigen" @click=${() => this._completeTask(t.task_id)}>
+              <button class="icon-btn ok" aria-label=${this._t("action.complete")} title=${this._t("action.complete")} @click=${() => this._completeTask(t.task_id)}>
                 <ha-icon icon="mdi:check-circle"></ha-icon>
               </button>
             `
@@ -865,14 +876,14 @@ export class ChoreFlowCard extends LitElement {
 
   private _renderHistory(): TemplateResult {
     return html`
-      <div class="hist-head">Verlauf</div>
+      <div class="hist-head">${this._t("history.title")}</div>
       ${this._history.length === 0 && this._historyLoading
-        ? html`<div class="empty"><p>Lädt…</p></div>`
+        ? html`<div class="empty"><p>${this._t("history.loading")}</p></div>`
         : this._history.length === 0
-        ? html`<div class="empty"><p>Noch keine Einträge.</p></div>`
+        ? html`<div class="empty"><p>${this._t("history.empty")}</p></div>`
         : html`<div class="list">
             ${this._history.map((h) => {
-              const v = eventVisual(h.event_type);
+               const v = eventVisual(this.hass, h.event_type);
               const canReopen =
                 (h.event_type === "task_completed" || h.event_type === "task_completed_from_todo") &&
                 !!h.task_id;
@@ -887,7 +898,7 @@ export class ChoreFlowCard extends LitElement {
                   <div class="hist-meta">${meta.join(" · ")}</div>
                 </div>
                 ${canReopen
-                  ? html`<button class="icon-btn" aria-label="Korrigieren" title="Erledigung rückgängig machen" @click=${() => this._reopenTask(h.task_id!)}>
+                   ? html`<button class="icon-btn" aria-label=${this._t("action.correct")} title=${this._t("action.revert_completion")} @click=${() => this._reopenTask(h.task_id!)}>
                       <ha-icon icon="mdi:undo"></ha-icon>
                     </button>`
                   : nothing}
@@ -896,7 +907,7 @@ export class ChoreFlowCard extends LitElement {
           </div>`}
       ${this._historyOffset < this._historyTotal
         ? html`<button class="loadmore" ?disabled=${this._historyLoading} @click=${() => this._loadHistory(false)}>
-            ${this._historyLoading ? "Lädt…" : "Mehr laden"}
+             ${this._historyLoading ? this._t("history.loading") : this._t("action.load_more")}
           </button>`
         : nothing}
     `;
@@ -922,15 +933,15 @@ export class ChoreFlowCard extends LitElement {
     return html`<div class="overlay" @click=${close}>
       <div class="dialog" style="max-width:320px" @click=${(e: Event) => e.stopPropagation()}>
         <div class="dlg-head">
-          <span>Wer bist du?</span>
-          <button type="button" class="icon-btn" aria-label="Schließen" @click=${close}><ha-icon icon="mdi:close"></ha-icon></button>
+          <span>${this._t("person.who")}</span>
+          <button type="button" class="icon-btn" aria-label=${this._t("action.close")} @click=${close}><ha-icon icon="mdi:close"></ha-icon></button>
         </div>
         <div class="dlg-body">
           ${persons.length
             ? persons.map(
                 (p) => html`<button class="person-pick-btn" @click=${() => pick(p.entity)}>${p.name}</button>`
               )
-            : html`<p style="margin:0;font-size:13px;color:var(--secondary-text-color)">Keine Personen gefunden. Bitte <code>persons</code> oder <code>default_person</code> in der Kartenkonfiguration setzen.</p>`}
+            : html`<p style="margin:0;font-size:13px;color:var(--secondary-text-color)">${this._t("person.none")}</p>`}
         </div>
       </div>
     </div>`;
@@ -939,12 +950,20 @@ export class ChoreFlowCard extends LitElement {
   private _renderEditDialog(): TemplateResult {
     const f = this._editForm!;
     const isRule = !!f.task_rule_id;
-    const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    const days = [
+      "weekday.mon",
+      "weekday.tue",
+      "weekday.wed",
+      "weekday.thu",
+      "weekday.fri",
+      "weekday.sat",
+      "weekday.sun",
+    ] as const;
     return html`<div class="overlay" @click=${() => this._closeEdit()}>
       <div class="dialog edit-dialog" @click=${(e: Event) => e.stopPropagation()}>
         <div class="dlg-head">
-          <span>Aufgabe bearbeiten</span>
-          <button type="button" class="icon-btn" aria-label="Schließen" @click=${() => this._closeEdit()}>
+          <span>${this._t("edit.title")}</span>
+          <button type="button" class="icon-btn" aria-label=${this._t("action.close")} @click=${() => this._closeEdit()}>
             <ha-icon icon="mdi:close"></ha-icon>
           </button>
         </div>
@@ -952,71 +971,71 @@ export class ChoreFlowCard extends LitElement {
           ${this._editError
             ? html`<div class="edit-error" role="alert"><ha-icon icon="mdi:alert-outline"></ha-icon>${this._editError}</div>`
             : nothing}
-          <label class="edit-label">Titel
+          <label class="edit-label">${this._t("field.title")}
             <input class="edit-input" type="text" .value=${f.title}
               @input=${(e: Event) => this._setEditField("title", (e.target as HTMLInputElement).value)} />
           </label>
-          <label class="edit-label">Beschreibung
+          <label class="edit-label">${this._t("field.description")}
             <textarea class="edit-input edit-textarea" rows="2"
               @input=${(e: Event) => this._setEditField("description", (e.target as HTMLTextAreaElement).value)}
             >${f.description}</textarea>
           </label>
           <div class="edit-row2">
-            <label class="edit-label">Raum
+            <label class="edit-label">${this._t("field.room")}
               <input class="edit-input" type="text" .value=${f.room}
                 @input=${(e: Event) => this._setEditField("room", (e.target as HTMLInputElement).value)} />
             </label>
-            <label class="edit-label">Kategorie
+            <label class="edit-label">${this._t("field.category")}
               <input class="edit-input" type="text" .value=${f.category}
                 @input=${(e: Event) => this._setEditField("category", (e.target as HTMLInputElement).value)} />
             </label>
           </div>
           <div class="edit-row2">
-            <label class="edit-label">Wichtigkeit
+            <label class="edit-label">${this._t("field.importance")}
               <select class="edit-input" .value=${f.importance}
                 @change=${(e: Event) => this._setEditField("importance", (e.target as HTMLSelectElement).value as Importance)}>
-                <option value="high" ?selected=${f.importance === "high"}>Hoch</option>
-                <option value="normal" ?selected=${f.importance === "normal"}>Normal</option>
-                <option value="low" ?selected=${f.importance === "low"}>Niedrig</option>
+                <option value="high" ?selected=${f.importance === "high"}>${this._t("importance.high")}</option>
+                <option value="normal" ?selected=${f.importance === "normal"}>${this._t("importance.normal")}</option>
+                <option value="low" ?selected=${f.importance === "low"}>${this._t("importance.low")}</option>
               </select>
             </label>
-            <label class="edit-label">Dauer (Min)
+            <label class="edit-label">${this._t("field.duration")}
               <input class="edit-input" type="number" min="1" max="1440" .value=${f.estimated_duration_minutes}
                 @input=${(e: Event) => this._setEditField("estimated_duration_minutes", (e.target as HTMLInputElement).value)} />
             </label>
           </div>
-          <label class="edit-label">Fälligkeitsdatum
+          <label class="edit-label">${this._t("field.due_date")}
             <input class="edit-input" type="date" .value=${f.due_date}
               @change=${(e: Event) => this._setEditField("due_date", (e.target as HTMLInputElement).value)} />
           </label>
           ${isRule ? html`
-            <div class="edit-section-head">Wiederholung</div>
+            <div class="edit-section-head">${this._t("recurrence.title")}</div>
             <div class="edit-recurrence-btns">
               ${(["once", "every_n_days", "weekdays"] as RecurrenceType[]).map((rt) => html`
                 <button class=${classMap({ "recurrence-btn": true, active: f.recurrence_type === rt })}
                   type="button" @click=${() => this._setEditField("recurrence_type", rt)}>
-                  ${{ once: "Einmalig", every_n_days: "Alle N Tage", weekdays: "Wochentage" }[rt]}
+                  ${this._t(`recurrence.${rt}` as TranslationKey)}
                 </button>`)}
             </div>
             ${f.recurrence_type === "every_n_days" ? html`
-              <label class="edit-label">Intervall (Tage)
+              <label class="edit-label">${this._t("recurrence.interval")}
                 <input class="edit-input" type="number" min="1" max="365" .value=${f.recurrence_interval}
                   @input=${(e: Event) => this._setEditField("recurrence_interval", (e.target as HTMLInputElement).value)} />
               </label>` : nothing}
             ${f.recurrence_type === "weekdays" ? html`
               <div class="weekday-picker">
-                ${DAYS.map((d, i) => html`
+                ${days.map((day, i) => html`
                   <button type="button"
                     class=${classMap({ "wd-btn": true, active: f.recurrence_weekdays.includes(i) })}
-                    @click=${() => this._toggleEditWeekday(i)}>${d}</button>`)}
+                    @click=${() => this._toggleEditWeekday(i)}>${this._t(day)}</button>`)}
               </div>` : nothing}
           ` : nothing}
         </div>
         <div class="dlg-footer">
-          <button class="dlg-btn secondary" type="button" @click=${() => this._closeEdit()}>Abbrechen</button>
+          <button class="dlg-btn secondary" type="button" @click=${() => this._closeEdit()}>${this._t("action.cancel")}</button>
           <button class="dlg-btn primary" type="button" ?disabled=${this._editSaving} @click=${() => this._saveEdit()}>
             ${this._editSaving ? html`<ha-icon icon="mdi:loading" style="animation:spin .8s linear infinite"></ha-icon>` : nothing}
-            Speichern
+            ${this._t("action.save")}
           </button>
         </div>
       </div>
@@ -1065,33 +1084,33 @@ export class ChoreFlowCard extends LitElement {
     return html`<div class="overlay" @click=${close}>
       <form class="dialog" @click=${(e: Event) => e.stopPropagation()} @submit=${submit}>
         <div class="dlg-head">
-          <span>Neue Aufgabe</span>
-          <button type="button" class="icon-btn" aria-label="Schließen" @click=${close}><ha-icon icon="mdi:close"></ha-icon></button>
+          <span>${this._t("create.title")}</span>
+          <button type="button" class="icon-btn" aria-label=${this._t("action.close")} @click=${close}><ha-icon icon="mdi:close"></ha-icon></button>
         </div>
         <div class="dlg-body">
-          <label>Titel<input name="title" placeholder="z. B. Bad putzen" autofocus /></label>
+          <label>${this._t("field.title")}<input name="title" placeholder=${this._t("create.title_placeholder")} autofocus /></label>
           <div class="two">
-            <label>Raum<input name="room" list="cf-rooms" placeholder="Küche" /></label>
-            <label>Kategorie<input name="category" list="cf-cats" placeholder="Reinigung" /></label>
+            <label>${this._t("field.room")}<input name="room" list="cf-rooms" placeholder=${this._t("create.room_placeholder")} /></label>
+            <label>${this._t("field.category")}<input name="category" list="cf-cats" placeholder=${this._t("create.category_placeholder")} /></label>
           </div>
           <datalist id="cf-rooms">${rooms.map((r) => html`<option value=${r}></option>`)}</datalist>
           <datalist id="cf-cats">${categories.map((c) => html`<option value=${c}></option>`)}</datalist>
           <fieldset class="radios">
-            <legend>Wichtigkeit</legend>
+            <legend>${this._t("field.importance")}</legend>
             ${["low", "normal", "high"].map(
-              (v, i) => html`<label class="radio"><input type="radio" name="importance" value=${v} ?checked=${i === 1} />${{ low: "Niedrig", normal: "Normal", high: "Hoch" }[v]}</label>`
+              (v, i) => html`<label class="radio"><input type="radio" name="importance" value=${v} ?checked=${i === 1} />${this._t(`importance.${v}` as TranslationKey)}</label>`
             )}
           </fieldset>
           <div class="two">
-            <label>Dauer (Min)<input name="duration" type="number" min="0" placeholder="15" /></label>
-            <label>Fällig am<input name="due_date" type="date" /></label>
+            <label>${this._t("field.duration")}<input name="duration" type="number" min="0" placeholder="15" /></label>
+            <label>${this._t("create.due")}<input name="due_date" type="date" /></label>
           </div>
           <details>
-            <summary>Sichtbarkeit &amp; Zuweisung</summary>
+            <summary>${this._t("create.visibility_assignment")}</summary>
             <fieldset class="radios">
-              <legend>Sichtbar für</legend>
-              <label class="radio"><input type="radio" name="visibility_mode" value="all_enabled_persons" checked />Alle Personen</label>
-              <label class="radio"><input type="radio" name="visibility_mode" value="selected_persons" />Ausgewählte</label>
+              <legend>${this._t("create.visible_to")}</legend>
+              <label class="radio"><input type="radio" name="visibility_mode" value="all_enabled_persons" checked />${this._t("create.all_persons")}</label>
+              <label class="radio"><input type="radio" name="visibility_mode" value="selected_persons" />${this._t("create.selected")}</label>
             </fieldset>
             ${persons.length
               ? html`<div class="chips">
@@ -1099,19 +1118,19 @@ export class ChoreFlowCard extends LitElement {
                 </div>`
               : nothing}
             <fieldset class="radios">
-              <legend>Zuweisung</legend>
-              <label class="radio"><input type="radio" name="assignment_mode" value="random" checked />Zufällig</label>
-              <label class="radio"><input type="radio" name="assignment_mode" value="assigned" />Feste Person</label>
+              <legend>${this._t("create.assignment")}</legend>
+              <label class="radio"><input type="radio" name="assignment_mode" value="random" checked />${this._t("create.random")}</label>
+              <label class="radio"><input type="radio" name="assignment_mode" value="assigned" />${this._t("create.fixed_person")}</label>
             </fieldset>
-            <label>Person<select name="assignment_person">
-              <option value="">Person wählen…</option>
+            <label>${this._t("field.person")}<select name="assignment_person">
+              <option value="">${this._t("create.choose_person")}</option>
               ${persons.map((p) => html`<option value=${p.entity}>${this._personName(p)}</option>`)}
             </select></label>
           </details>
           <details>
-            <summary>Kalender-Export</summary>
+            <summary>${this._t("create.calendar_export")}</summary>
             <label style="margin-top:8px">
-              Kalender-Entität (optional)
+              ${this._t("create.calendar_entity")}
               <input
                 name="calendar_export_entity_id"
                 placeholder="calendar.outlook_kalender"
@@ -1119,13 +1138,13 @@ export class ChoreFlowCard extends LitElement {
               />
             </label>
             <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">
-              Falls angegeben, wird der Fälligkeitstermin als Termin im gewählten Kalender angelegt.
+              ${this._t("create.calendar_help")}
             </p>
           </details>
         </div>
         <div class="dlg-foot">
-          <button type="button" class="btn ghost" @click=${close}>Abbrechen</button>
-          <button type="submit" class="btn primary">Erstellen</button>
+          <button type="button" class="btn ghost" @click=${close}>${this._t("action.cancel")}</button>
+          <button type="submit" class="btn primary">${this._t("action.create_short")}</button>
         </div>
       </form>
     </div>`;
@@ -1291,21 +1310,21 @@ function personLabel(hass: HomeAssistant, entity: string): string {
   return (st?.attributes?.friendly_name as string) || entity.split(".").pop() || entity;
 }
 
-function eventVisual(type: string): { icon: string; tone: string; label: string } {
+function eventVisual(hass: HomeAssistant, type: string): { icon: string; tone: string; label: string } {
   switch (type) {
-    case "task_completed": return { icon: "mdi:check-circle", tone: "ok", label: "Erledigt" };
-    case "task_completed_from_todo": return { icon: "mdi:clipboard-check", tone: "ok", label: "Erledigt (To-do)" };
-    case "task_reopened": return { icon: "mdi:undo", tone: "warn", label: "Korrigiert" };
-    case "task_snoozed": return { icon: "mdi:clock-outline", tone: "warn", label: "Später erinnert" };
-    case "task_created": return { icon: "mdi:plus-circle-outline", tone: "muted", label: "Erstellt" };
-    case "task_updated": return { icon: "mdi:pencil", tone: "muted", label: "Geändert" };
-    case "task_deleted": return { icon: "mdi:delete-outline", tone: "muted", label: "Gelöscht" };
-    case "task_notified": return { icon: "mdi:bell-outline", tone: "muted", label: "Benachrichtigt" };
-    case "task_missed_no_presence": return { icon: "mdi:account-off-outline", tone: "err", label: "Verpasst (abwesend)" };
-    case "task_expired": return { icon: "mdi:close-circle-outline", tone: "err", label: "Abgelaufen" };
-    case "task_synced_from_todo": return { icon: "mdi:sync", tone: "muted", label: "Aus To-do" };
-    case "calendar_task_created": return { icon: "mdi:calendar-plus", tone: "muted", label: "Kalender erstellt" };
-    case "calendar_task_removed": return { icon: "mdi:calendar-remove", tone: "muted", label: "Kalender entfernt" };
+    case "task_completed": return { icon: "mdi:check-circle", tone: "ok", label: localize(hass, "history.completed") };
+    case "task_completed_from_todo": return { icon: "mdi:clipboard-check", tone: "ok", label: localize(hass, "history.completed_todo") };
+    case "task_reopened": return { icon: "mdi:undo", tone: "warn", label: localize(hass, "history.corrected") };
+    case "task_snoozed": return { icon: "mdi:clock-outline", tone: "warn", label: localize(hass, "history.snoozed") };
+    case "task_created": return { icon: "mdi:plus-circle-outline", tone: "muted", label: localize(hass, "history.created") };
+    case "task_updated": return { icon: "mdi:pencil", tone: "muted", label: localize(hass, "history.updated") };
+    case "task_deleted": return { icon: "mdi:delete-outline", tone: "muted", label: localize(hass, "history.deleted") };
+    case "task_notified": return { icon: "mdi:bell-outline", tone: "muted", label: localize(hass, "history.notified") };
+    case "task_missed_no_presence": return { icon: "mdi:account-off-outline", tone: "err", label: localize(hass, "history.missed") };
+    case "task_expired": return { icon: "mdi:close-circle-outline", tone: "err", label: localize(hass, "history.expired") };
+    case "task_synced_from_todo": return { icon: "mdi:sync", tone: "muted", label: localize(hass, "history.from_todo") };
+    case "calendar_task_created": return { icon: "mdi:calendar-plus", tone: "muted", label: localize(hass, "history.calendar_created") };
+    case "calendar_task_removed": return { icon: "mdi:calendar-remove", tone: "muted", label: localize(hass, "history.calendar_removed") };
     default: return { icon: "mdi:information-outline", tone: "muted", label: type };
   }
 }
@@ -1315,7 +1334,7 @@ function eventVisual(type: string): { icon: string; tone: string; label: string 
 (window as any).customCards.push({
   type: "choreflow-card",
   name: "ChoreFlow Card",
-  description: "Ruhige, kompakte Aufgaben-Card für die ChoreFlow-Integration.",
+  description: "Compact task card for the ChoreFlow integration.",
   preview: true,
   documentationURL: "https://github.com/your-org/ha-choreflow-card",
 });
