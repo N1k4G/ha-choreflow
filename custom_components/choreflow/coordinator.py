@@ -912,6 +912,21 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         )
         await self._persist_and_refresh()
 
+    async def async_delete_from_external(self, task_id: str, source: str) -> None:
+        """Mirror an upstream deletion without deleting back to that source."""
+        inst = self.store.task_instances.get(task_id)
+        if inst is None or inst.status != TaskStatus.OPEN:
+            return
+        inst.status = TaskStatus.DELETED
+        inst.deleted_at = self.clock.now()
+        self._book.release(task_id)
+        await self._async_log_event(
+            EVENT_TASK_DELETED,
+            task=inst,
+            decision_reason=f"{source} item removed",
+        )
+        await self._persist_and_refresh()
+
     async def async_complete_from_external(self, task_id: str, source: str) -> None:
         """Complete a task from an external source (no person, no chain) (§16.4)."""
         inst = self.store.task_instances.get(task_id)

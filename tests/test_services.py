@@ -6,7 +6,7 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -30,6 +30,7 @@ from custom_components.choreflow.models import (
     VisibilityMode,
 )
 from custom_components.choreflow.notify import build_action_id
+from custom_components.choreflow.services import _export_to_calendar
 
 from .factories import config_entry_data, make_instance, make_rule
 
@@ -114,6 +115,69 @@ async def test_create_and_complete_task_services(
     assert store.task_instances[task_id].status == TaskStatus.COMPLETED
     assert store.task_instances[task_id].completion_source == "dashboard"
     assert store.task_instances[task_id].estimated_duration_minutes == 8
+
+
+async def test_create_task_exports_one_day_all_day_calendar_event(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _prereqs(hass)
+    await _setup(hass)
+    calendar_calls: list[dict] = []
+    hass.services.async_register(
+        "calendar",
+        "create_event",
+        lambda call: calendar_calls.append(dict(call.data)),
+    )
+    due = date(2026, 6, 20)
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CREATE_TASK,
+        {
+            "title": "Take bins out",
+            "room": "Outside",
+            "category": "Waste",
+            "due_date": due,
+            "calendar_export_entity_id": "calendar.household",
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response is not None
+    assert calendar_calls == [
+        {
+            "entity_id": "calendar.household",
+            "summary": "Take bins out",
+            "start_date": "2026-06-20",
+            "end_date": "2026-06-21",
+            "description": f"[ChoreFlow {response['task_id']}] Outside · Waste",
+        }
+    ]
+
+
+async def test_calendar_export_normalizes_datetime_to_date(
+    hass: HomeAssistant,
+) -> None:
+    calendar_calls: list[dict] = []
+    hass.services.async_register(
+        "calendar",
+        "create_event",
+        lambda call: calendar_calls.append(dict(call.data)),
+    )
+
+    await _export_to_calendar(
+        hass,
+        "calendar.household",
+        {
+            "title": "Take bins out",
+            "due_date": datetime(2026, 6, 20, 18, 30, tzinfo=UTC),
+        },
+        "task-1",
+    )
+
+    assert calendar_calls[0]["start_date"] == "2026-06-20"
+    assert calendar_calls[0]["end_date"] == "2026-06-21"
 
 
 async def test_update_task_clears_nullable_fields(

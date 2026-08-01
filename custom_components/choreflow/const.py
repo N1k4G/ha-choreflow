@@ -66,6 +66,7 @@ CONF_IMPORT_ROOM: Final = "room"
 CONF_IMPORT_CATEGORY: Final = "category"
 CONF_IMPORT_IMPORTANCE: Final = "importance"
 CONF_IMPORT_ASSIGNMENT_MODE: Final = "assignment_mode"
+CONF_IMPORT_ASSIGNMENT_PERSON: Final = "assignment_person"
 
 # Calendar sync (§7, Lastenheft §15)
 CONF_CALENDAR_SOURCES: Final = "calendar_sources"

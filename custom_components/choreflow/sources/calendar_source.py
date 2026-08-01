@@ -117,7 +117,9 @@ class CalendarSource:
             summary = str(event.get("summary", ""))
             if keywords and not any(kw in summary.lower() for kw in keywords):
                 continue
-            event_uid = str(event.get("uid") or f"{summary}@{event['start']}")
+            base_uid = str(event.get("uid") or summary)
+            occurrence = str(event.get("recurrence_id") or event["start"])
+            event_uid = f"{base_uid}@{occurrence}"
             ref = CalendarRef(
                 entity_id=entity_id, event_uid=event_uid, task_rule_id=rule_id
             )

@@ -31,6 +31,7 @@ from .const import (
     CONF_DAY_END_TIME,
     CONF_ENABLED_PERSONS,
     CONF_IMPORT_ASSIGNMENT_MODE,
+    CONF_IMPORT_ASSIGNMENT_PERSON,
     CONF_IMPORT_CATEGORY,
     CONF_IMPORT_IMPORTANCE,
     CONF_IMPORT_ROOM,
@@ -219,6 +220,14 @@ def _todo_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_IMPORT_ASSIGNMENT_MODE, DEFAULT_IMPORT_ASSIGNMENT_MODE
             ),
         ): vol.In(_ASSIGNMENT_OPTIONS),
+        vol.Optional(
+            CONF_IMPORT_ASSIGNMENT_PERSON,
+            description={
+                "suggested_value": import_defaults.get(
+                    CONF_IMPORT_ASSIGNMENT_PERSON
+                )
+            },
+        ): selector.EntitySelector(selector.EntitySelectorConfig(domain="person")),
     }
     return vol.Schema(schema)
 
@@ -252,6 +261,7 @@ def _calendar_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 def _build_todo_config(user_input: dict[str, Any]) -> dict[str, Any]:
     """Assemble the nested ``todo_sync`` config from a flat to-do form."""
+    assignment_mode = user_input[CONF_IMPORT_ASSIGNMENT_MODE]
     return {
         CONF_TODO_ENABLED: user_input[CONF_TODO_ENABLED],
         CONF_TODO_ENTITY_ID: user_input.get(CONF_TODO_ENTITY_ID),
@@ -262,9 +272,36 @@ def _build_todo_config(user_input: dict[str, Any]) -> dict[str, Any]:
             CONF_IMPORT_ROOM: user_input[CONF_IMPORT_ROOM],
             CONF_IMPORT_CATEGORY: user_input[CONF_IMPORT_CATEGORY],
             CONF_IMPORT_IMPORTANCE: user_input[CONF_IMPORT_IMPORTANCE],
-            CONF_IMPORT_ASSIGNMENT_MODE: user_input[CONF_IMPORT_ASSIGNMENT_MODE],
+            CONF_IMPORT_ASSIGNMENT_MODE: assignment_mode,
+            CONF_IMPORT_ASSIGNMENT_PERSON: (
+                user_input.get(CONF_IMPORT_ASSIGNMENT_PERSON)
+                if assignment_mode == "assigned"
+                else None
+            ),
         },
     }
+
+
+def _validate_todo_config(
+    user_input: dict[str, Any], enabled_persons: list[str]
+) -> dict[str, str]:
+    """Validate assigned-import defaults against the selected household."""
+    if not (
+        user_input[CONF_TODO_ENABLED]
+        and user_input[CONF_TODO_IMPORT_NEW_ITEMS]
+        and user_input[CONF_IMPORT_ASSIGNMENT_MODE] == "assigned"
+    ):
+        return {}
+    person = user_input.get(CONF_IMPORT_ASSIGNMENT_PERSON)
+    if not person:
+        return {
+            CONF_IMPORT_ASSIGNMENT_PERSON: "import_assignment_person_required"
+        }
+    if person not in enabled_persons:
+        return {
+            CONF_IMPORT_ASSIGNMENT_PERSON: "import_assignment_person_not_enabled"
+        }
+    return {}
 
 
 def _build_calendar_config(user_input: dict[str, Any]) -> list[dict[str, Any]]:
@@ -382,10 +419,18 @@ class ChoreFlowConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_todo(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data[CONF_TODO_SYNC] = _build_todo_config(user_input)
-            return await self.async_step_calendar()
-        return self.async_show_form(step_id="todo", data_schema=_todo_schema({}))
+            errors = _validate_todo_config(
+                user_input, self._data.get(CONF_ENABLED_PERSONS, [])
+            )
+            if not errors:
+                self._data[CONF_TODO_SYNC] = _build_todo_config(user_input)
+                return await self.async_step_calendar()
+        defaults = _build_todo_config(user_input) if user_input is not None else {}
+        return self.async_show_form(
+            step_id="todo", data_schema=_todo_schema(defaults), errors=errors
+        )
 
     async def async_step_calendar(
         self, user_input: dict[str, Any] | None = None
@@ -504,12 +549,21 @@ class ChoreFlowOptionsFlow(OptionsFlow):
     async def async_step_todo(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data[CONF_TODO_SYNC] = _build_todo_config(user_input)
-            return await self.async_step_calendar()
-        todo_defaults = dict(self._current.get(CONF_TODO_SYNC, {}))
+            errors = _validate_todo_config(
+                user_input, self._data.get(CONF_ENABLED_PERSONS, [])
+            )
+            if not errors:
+                self._data[CONF_TODO_SYNC] = _build_todo_config(user_input)
+                return await self.async_step_calendar()
+        todo_defaults = (
+            _build_todo_config(user_input)
+            if user_input is not None
+            else dict(self._current.get(CONF_TODO_SYNC, {}))
+        )
         return self.async_show_form(
-            step_id="todo", data_schema=_todo_schema(todo_defaults)
+            step_id="todo", data_schema=_todo_schema(todo_defaults), errors=errors
         )
 
     async def async_step_calendar(

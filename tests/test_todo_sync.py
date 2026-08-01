@@ -6,6 +6,7 @@ Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from random import Random
 from typing import Any
@@ -13,13 +14,20 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
-from custom_components.choreflow.const import DOMAIN
+from custom_components.choreflow import _TodoSyncDebouncer
+from custom_components.choreflow.const import DOMAIN, EVENT_TASK_DELETED
 from custom_components.choreflow.coordinator import ChoreFlowCoordinator
 from custom_components.choreflow.engine.clock import FixedClock
 from custom_components.choreflow.engine.scheduler import ScheduleConfig
+from custom_components.choreflow.engine.selector import PersonContext, is_suitable
 from custom_components.choreflow.models import (
+    AssignmentMode,
     CalendarRef,
     ExternalRefs,
     TaskSource,
@@ -59,6 +67,9 @@ def _enable(enable_custom_integrations: None) -> None:
 
 async def _build(
     hass: HomeAssistant,
+    *,
+    todo_cfg: dict[str, Any] | None = None,
+    enabled_persons: list[str] | None = None,
 ) -> tuple[ChoreFlowCoordinator, ChoreFlowStore, TodoSync, list[dict], list[str]]:
     items: list[dict[str, Any]] = []
     completed: list[str] = []
@@ -106,11 +117,11 @@ async def _build(
     await log_store.async_setup()
     settings = ChoreFlowSettings(
         name="Home",
-        enabled_persons=[],
+        enabled_persons=enabled_persons or [],
         person_settings={},
         schedule=ScheduleConfig.with_defaults(),
         max_tasks_per_person_per_day=5,
-        todo=_todo_cfg(),
+        todo=todo_cfg or _todo_cfg(),
         calendar_sources=[],
     )
     entry = MockConfigEntry(domain=DOMAIN, data={})
@@ -157,6 +168,54 @@ async def test_completion_from_todo(hass: HomeAssistant) -> None:
     inst = store.task_instances["task_todo_u1"]
     assert inst.status == TaskStatus.COMPLETED
     assert inst.completion_source == "todo"
+
+
+async def test_removed_imported_item_deletes_without_completion(
+    hass: HomeAssistant,
+) -> None:
+    coordinator, store, todo_sync, items, _ = await _build(hass)
+    items.append({"uid": "u1", "summary": "Buy milk", "status": "needs_action"})
+    await todo_sync.async_sync()
+    items.clear()
+
+    await todo_sync.async_sync()
+    await hass.async_block_till_done()
+
+    inst = store.task_instances["task_todo_u1"]
+    assert inst.status == TaskStatus.DELETED
+    assert inst.completed_at is None
+    assert inst.completion_source is None
+    rows, total = await coordinator.log_store.async_query_history(
+        event_types=[EVENT_TASK_DELETED],
+        person_entity=None,
+        room=None,
+        category=None,
+        limit=10,
+        offset=0,
+    )
+    assert total == 1
+    assert rows[0]["decision_reason"] == "todo item removed"
+
+
+async def test_removed_exported_item_is_dismissed_without_reexport(
+    hass: HomeAssistant,
+) -> None:
+    _coordinator, store, todo_sync, items, _ = await _build(hass)
+    inst = make_instance("native")
+    inst.external_refs = ExternalRefs(
+        todo=TodoRef(entity_id=_ENTITY, item_uid="missing")
+    )
+    store.task_instances[inst.id] = inst
+
+    await todo_sync.async_sync()
+    await todo_sync.async_sync()
+    await hass.async_block_till_done()
+
+    assert inst.status == TaskStatus.OPEN
+    assert inst.completed_at is None
+    assert inst.external_refs.todo is not None
+    assert inst.external_refs.todo.dismissed is True
+    assert items == []
 
 
 async def test_completion_to_todo(hass: HomeAssistant) -> None:
@@ -279,6 +338,100 @@ async def test_delete_mirrors_to_todo(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert items == []
+
+
+async def test_assigned_import_is_suitable_only_for_configured_person(
+    hass: HomeAssistant,
+) -> None:
+    cfg = _todo_cfg()
+    cfg["import_defaults"]["assignment_mode"] = "assigned"
+    cfg["import_defaults"]["assignment_person"] = "person.niklas"
+    _coordinator, store, todo_sync, items, _ = await _build(
+        hass,
+        todo_cfg=cfg,
+        enabled_persons=["person.niklas", "person.partner"],
+    )
+    items.append({"uid": "u1", "summary": "Buy milk", "status": "needs_action"})
+
+    await todo_sync.async_sync()
+    await hass.async_block_till_done()
+
+    inst = store.task_instances["task_todo_u1"]
+    assert inst.assignment_mode == AssignmentMode.ASSIGNED
+    assert inst.assignment_person == "person.niklas"
+    assert is_suitable(inst, PersonContext("person.niklas")) is True
+    assert is_suitable(inst, PersonContext("person.partner")) is False
+
+
+async def test_legacy_assigned_import_without_person_falls_back_to_random(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg = _todo_cfg()
+    cfg["import_defaults"]["assignment_mode"] = "assigned"
+    _coordinator, store, todo_sync, items, _ = await _build(
+        hass, todo_cfg=cfg, enabled_persons=["person.niklas"]
+    )
+    items.append({"uid": "u1", "summary": "Buy milk", "status": "needs_action"})
+
+    await todo_sync.async_sync()
+
+    inst = store.task_instances["task_todo_u1"]
+    assert inst.assignment_mode == AssignmentMode.RANDOM
+    assert inst.assignment_person is None
+    assert "falling back to random" in caplog.text
+
+
+async def test_overlapping_sync_requests_coalesce_to_one_trailing_run(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _coordinator, _store, todo_sync, _items, _ = await _build(hass)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def _blocked_sync_once() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+
+    monkeypatch.setattr(todo_sync, "_async_sync_once", _blocked_sync_once)
+
+    first = asyncio.create_task(todo_sync.async_sync())
+    await entered.wait()
+    await asyncio.gather(*(todo_sync.async_sync() for _ in range(5)))
+    release.set()
+    await first
+
+    assert calls == 2
+
+
+async def test_todo_state_bursts_and_self_writes_debounce_to_two_runs(
+    hass: HomeAssistant,
+) -> None:
+    calls = 0
+    debouncer: _TodoSyncDebouncer
+
+    async def _sync() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            for _ in range(5):
+                debouncer.async_schedule()
+
+    debouncer = _TodoSyncDebouncer(hass, _sync)
+    for _ in range(5):
+        debouncer.async_schedule()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    await hass.async_block_till_done()
+    assert calls == 1
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    await hass.async_block_till_done()
+    assert calls == 2
+    debouncer.async_cancel()
 
 
 async def test_retention_pruning_does_not_delete_external_todo_item(

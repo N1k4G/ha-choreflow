@@ -11,7 +11,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.choreflow.const import (
     CONF_ENABLED_PERSONS,
+    CONF_IMPORT_ASSIGNMENT_MODE,
+    CONF_IMPORT_ASSIGNMENT_PERSON,
     CONF_PERSON_SETTINGS,
+    CONF_TODO_IMPORT_DEFAULTS,
+    CONF_TODO_SYNC,
     DOMAIN,
 )
 
@@ -89,6 +93,61 @@ async def test_notify_issue_tracks_service_lifecycle_without_reload(
     hass.services.async_remove("notify", "mobile_app_niklas")
     await hass.async_block_till_done()
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_invalid_todo_assignment_issue_clears_when_configuration_is_valid(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    data = config_entry_data()
+    data[CONF_TODO_SYNC] = {
+        "enabled": False,
+        CONF_TODO_IMPORT_DEFAULTS: {
+            CONF_IMPORT_ASSIGNMENT_MODE: "assigned",
+        },
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=data)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = ir.async_get(hass)
+    issue_id = f"{entry.entry_id}_invalid_todo_import_assignment"
+    issue = registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.is_fixable is False
+    assert issue.severity == ir.IssueSeverity.WARNING
+    assert issue.translation_key == "invalid_todo_import_assignment"
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            CONF_TODO_SYNC: {
+                "enabled": False,
+                CONF_TODO_IMPORT_DEFAULTS: {
+                    CONF_IMPORT_ASSIGNMENT_MODE: "assigned",
+                    CONF_IMPORT_ASSIGNMENT_PERSON: _OTHER_PERSON,
+                },
+            }
+        },
+    )
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            CONF_TODO_SYNC: {
+                "enabled": False,
+                CONF_TODO_IMPORT_DEFAULTS: {
+                    CONF_IMPORT_ASSIGNMENT_MODE: "assigned",
+                    CONF_IMPORT_ASSIGNMENT_PERSON: _PERSON,
+                },
+            }
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_entry_removal_clears_owned_repair_issues(
