@@ -42,6 +42,7 @@ def _sample_rule() -> TaskRule:
         assignment_mode=AssignmentMode.RANDOM,
         assignment_person=None,
         created_date=date(2026, 6, 18),
+        last_completed_date=date(2026, 6, 20),
     )
 
 

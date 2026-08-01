@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from custom_components.choreflow.engine.recurrence import (
     due_instances_for,
@@ -50,6 +50,22 @@ def test_every_n_days_anchor_moves_to_last_completion() -> None:
     )
     assert _ids([rule], date(2026, 6, 18), [completed]) == []
     assert _ids([rule], date(2026, 6, 19), [completed]) == ["inst_2026_06_19_r"]
+
+
+def test_durable_anchor_survives_completed_instance_pruning() -> None:
+    completed_date = date(2026, 1, 1)
+    rule = make_rule(
+        "long-interval",
+        recurrence_interval=182,
+        created_date=date(2025, 1, 1),
+        last_completed_date=completed_date,
+    )
+
+    assert _ids([rule], completed_date) == []
+    assert _ids([rule], completed_date + timedelta(days=181)) == []
+    assert _ids([rule], completed_date + timedelta(days=182)) == [
+        "inst_2026_07_02_long-interval"
+    ]
 
 
 def test_weekdays_rule() -> None:

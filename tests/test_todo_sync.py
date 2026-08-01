@@ -6,7 +6,7 @@ Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from random import Random
 from typing import Any
 
@@ -279,6 +279,27 @@ async def test_delete_mirrors_to_todo(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert items == []
+
+
+async def test_retention_pruning_does_not_delete_external_todo_item(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator, store, todo_sync, items, _ = await _build(hass)
+    coordinator.add_task_deleted_listener(todo_sync.async_on_task_deleted)
+    items.append({"uid": "u9", "summary": "Trash", "status": "completed"})
+    inst = make_instance(
+        "task_x",
+        status=TaskStatus.COMPLETED,
+        completed_at=_NOW - timedelta(days=121),
+    )
+    inst.external_refs = ExternalRefs(todo=TodoRef(entity_id=_ENTITY, item_uid="u9"))
+    store.task_instances[inst.id] = inst
+    monkeypatch.setattr(store, "async_schedule_save", lambda: None)
+
+    assert coordinator._prune_stale(_NOW.date()) is True
+
+    assert inst.id not in store.task_instances
+    assert items == [{"uid": "u9", "summary": "Trash", "status": "completed"}]
 
 
 async def test_export_skipped_when_disabled(hass: HomeAssistant) -> None:

@@ -44,6 +44,7 @@ def test_task_rule_round_trip_full() -> None:
         assignment_mode=AssignmentMode.RANDOM,
         assignment_person=None,
         created_date=date(2026, 6, 18),
+        last_completed_date=date(2026, 6, 20),
         enabled=True,
     )
     assert TaskRule.from_dict(rule.to_dict()) == rule
@@ -72,6 +73,7 @@ def test_task_rule_round_trip_weekdays_and_deadline() -> None:
     assert restored == rule
     assert restored.recurrence_weekdays == [0, 2, 4]
     assert restored.enabled is True  # default applied
+    assert restored.last_completed_date is None
 
 
 def test_task_instance_round_trip_with_external_refs() -> None:
@@ -140,6 +142,7 @@ def test_task_instance_round_trip_minimal_open() -> None:
     restored = TaskInstance.from_dict(instance.to_dict())
     assert restored == instance
     assert restored.completed_at is None
+    assert restored.deleted_at is None
     assert restored.external_refs is None
 
 
