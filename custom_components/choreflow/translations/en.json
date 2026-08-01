@@ -162,6 +162,10 @@
       "title": "ChoreFlow notify service missing",
       "description": "The notify service {service} configured for {person} does not exist. Pushes to this person are skipped until it is available."
     },
+    "invalid_todo_import_assignment": {
+      "title": "ChoreFlow to-do import assignment invalid",
+      "description": "Assigned to-do imports do not reference an enabled person. ChoreFlow imports those tasks with random assignment until an enabled person is selected in the integration options."
+    },
     "todo_unavailable": {
       "title": "ChoreFlow to-do list unavailable",
       "description": "The mapped to-do list {entity_id} is unavailable. Sync is suspended and resumes automatically once it is back."

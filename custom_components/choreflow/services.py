@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -304,7 +304,12 @@ async def _export_to_calendar(
     due: Any = fields.get("due_date")
     if due is None:
         return
-    due_date = due if isinstance(due, date) else date.fromisoformat(str(due))
+    if isinstance(due, datetime):
+        due_date = due.date()
+    elif isinstance(due, date):
+        due_date = due
+    else:
+        due_date = date.fromisoformat(str(due))
     summary = fields.get("title", "ChoreFlow-Aufgabe")
     description = fields.get("description") or ""
     if not description:

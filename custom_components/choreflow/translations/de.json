@@ -162,6 +162,10 @@
       "title": "ChoreFlow-Benachrichtigungsdienst fehlt",
       "description": "Der für {person} konfigurierte Benachrichtigungsdienst {service} existiert nicht. Pushes an diese Person werden ausgesetzt, bis er verfügbar ist."
     },
+    "invalid_todo_import_assignment": {
+      "title": "Ungültige Zuständigkeit für ChoreFlow-To-do-Importe",
+      "description": "Zugewiesene To-do-Importe verweisen auf keine aktivierte Person. ChoreFlow importiert diese Aufgaben mit zufälliger Zuweisung, bis in den Integrationsoptionen eine aktivierte Person ausgewählt wird."
+    },
     "todo_unavailable": {
       "title": "ChoreFlow-To-do-Liste nicht verfügbar",
       "description": "Die zugeordnete To-do-Liste {entity_id} ist nicht verfügbar. Die Synchronisation ist ausgesetzt und wird automatisch fortgesetzt, sobald sie wieder verfügbar ist."

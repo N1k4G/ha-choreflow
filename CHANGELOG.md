@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Load the complete paginated task collection in the dashboard card, preserve
+  filters and prior results across refreshes, allow nullable fields to be
+  cleared, and evaluate snooze dates in the browser's local date. (#21, #22,
+  #23, #24; PR #28)
+- Harden coordinator state lifecycle: serialize per-person chain mutations,
+  persist early-return transitions and recurrence anchors, release stale
+  reservations, and bound retained state without deleting external to-do
+  history. (#3, #4, #5, #9, #14, #18, #20; PR #29)
+- Export calendar tasks as one-day all-day events instead of zero-length
+  events. (#6)
+- Track each recurring calendar occurrence independently so a completed event
+  does not suppress later occurrences. (#7) This changes the dedup key from a
+  backend UID to `<uid>@<occurrence>`. On the first calendar sync after upgrade,
+  existing open tasks from backends that supply UIDs are removed and recreated;
+  their snoozes are lost, linked to-do items are recreated with new UIDs, and
+  task IDs change. Backends without UIDs keep the existing `summary@start` key
+  and are unaffected by this one-time resync.
+- Treat a to-do item removed at its source as a deletion for imported tasks,
+  while retaining and dismissing native ChoreFlow tasks whose exported item was
+  removed so they are not recreated in a loop. (#8)
+- Debounce to-do entity updates and coalesce overlapping synchronization runs
+  into at most one trailing pass. (#10)
+- Allow assigned to-do imports to target a configured enabled person, validate
+  the selection in config and options flows, and safely flag invalid legacy
+  configuration. (#19)
+
 ## [1.1.2] - 2026-07-31
 
 ### Fixed

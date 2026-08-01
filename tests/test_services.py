@@ -6,7 +6,7 @@ Requires Home Assistant; runs in CI (Linux), not on native Windows.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -30,6 +30,7 @@ from custom_components.choreflow.models import (
     VisibilityMode,
 )
 from custom_components.choreflow.notify import build_action_id
+from custom_components.choreflow.services import _export_to_calendar
 
 from .factories import config_entry_data, make_instance, make_rule
 
@@ -153,6 +154,30 @@ async def test_create_task_exports_one_day_all_day_calendar_event(
             "description": f"[ChoreFlow {response['task_id']}] Outside · Waste",
         }
     ]
+
+
+async def test_calendar_export_normalizes_datetime_to_date(
+    hass: HomeAssistant,
+) -> None:
+    calendar_calls: list[dict] = []
+    hass.services.async_register(
+        "calendar",
+        "create_event",
+        lambda call: calendar_calls.append(dict(call.data)),
+    )
+
+    await _export_to_calendar(
+        hass,
+        "calendar.household",
+        {
+            "title": "Take bins out",
+            "due_date": datetime(2026, 6, 20, 18, 30, tzinfo=UTC),
+        },
+        "task-1",
+    )
+
+    assert calendar_calls[0]["start_date"] == "2026-06-20"
+    assert calendar_calls[0]["end_date"] == "2026-06-21"
 
 
 async def test_update_task_clears_nullable_fields(
