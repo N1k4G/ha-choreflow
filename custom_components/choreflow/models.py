@@ -166,6 +166,8 @@ class TaskRule:
     # recurrence; §2.2 does not list it, so we add it here with a None default.
     # The recurrence engine falls back to this when no completion exists yet.
     created_date: date | None = None
+    # Durable recurrence anchor. Unlike retained instances, this is never pruned.
+    last_completed_date: date | None = None
     enabled: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -187,6 +189,7 @@ class TaskRule:
             "assignment_mode": self.assignment_mode.value,
             "assignment_person": self.assignment_person,
             "created_date": _date_to_iso(self.created_date),
+            "last_completed_date": _date_to_iso(self.last_completed_date),
             "enabled": self.enabled,
         }
 
@@ -211,6 +214,7 @@ class TaskRule:
             assignment_mode=AssignmentMode(data["assignment_mode"]),
             assignment_person=data.get("assignment_person"),
             created_date=_date_from_iso(data.get("created_date")),
+            last_completed_date=_date_from_iso(data.get("last_completed_date")),
             enabled=data.get("enabled", True),
         )
 
@@ -240,6 +244,7 @@ class TaskInstance:
     created_at: datetime
     estimated_duration_minutes: int | None = None
     completed_at: datetime | None = None
+    deleted_at: datetime | None = None
     completed_by: str | None = None
     completion_source: str | None = None
     snooze_until: date | None = None
@@ -268,6 +273,7 @@ class TaskInstance:
             ),
             "created_at": _dt_to_iso(self.created_at),
             "completed_at": _dt_to_iso(self.completed_at),
+            "deleted_at": _dt_to_iso(self.deleted_at),
             "completed_by": self.completed_by,
             "completion_source": self.completion_source,
             "snooze_until": _date_to_iso(self.snooze_until),
@@ -301,6 +307,7 @@ class TaskInstance:
             external_refs=ExternalRefs.from_dict(refs) if refs else None,
             created_at=created_at,
             completed_at=_dt_from_iso(data.get("completed_at")),
+            deleted_at=_dt_from_iso(data.get("deleted_at")),
             completed_by=data.get("completed_by"),
             completion_source=data.get("completion_source"),
             snooze_until=_date_from_iso(data.get("snooze_until")),

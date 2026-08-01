@@ -56,6 +56,7 @@ def make_rule(
     recurrence_interval: int | None = 3,
     recurrence_weekdays: list[int] | None = None,
     created_date: date | None = None,
+    last_completed_date: date | None = None,
     deadline: date | None = None,
     urgency_type: UrgencyType | None = None,
     visibility_mode: VisibilityMode = VisibilityMode.ALL_ENABLED_PERSONS,
@@ -82,6 +83,7 @@ def make_rule(
         assignment_mode=assignment_mode,
         assignment_person=assignment_person,
         created_date=created_date,
+        last_completed_date=last_completed_date,
         enabled=enabled,
     )
 
@@ -106,6 +108,7 @@ def make_instance(
     assignment_person: str | None = None,
     created_at: datetime = FIXED_NOW,
     completed_at: datetime | None = None,
+    deleted_at: datetime | None = None,
 ) -> TaskInstance:
     return TaskInstance(
         id=instance_id,
@@ -128,4 +131,5 @@ def make_instance(
         external_refs=None,
         created_at=created_at,
         completed_at=completed_at,
+        deleted_at=deleted_at,
     )

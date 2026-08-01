@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from custom_components.choreflow.engine.reservation import (
     ReservationBook,
@@ -51,6 +51,18 @@ def test_release_paths() -> None:
     assert book.reserved_persons("t1") == {"person.b"}
     book.release("t1")
     assert book.items == []
+
+
+def test_release_all_for_person_and_expire_previous_days() -> None:
+    book = ReservationBook()
+    book.reserve("old-a", "person.a", _NOW - timedelta(days=1))
+    book.reserve("today-a", "person.a", _NOW)
+    book.reserve("today-b", "person.b", _NOW)
+
+    assert book.release_before(_TODAY) == 1
+    assert {item.task_id for item in book.items} == {"today-a", "today-b"}
+    assert book.release_all_for_person("person.a") == 1
+    assert {item.task_id for item in book.items} == {"today-b"}
 
 
 def test_book_mutates_shared_list_in_place() -> None:

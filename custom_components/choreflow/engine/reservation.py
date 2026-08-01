@@ -82,6 +82,18 @@ class ReservationBook:
             if not (r.task_id == task_id and r.person_entity == person)
         ]
 
+    def release_all_for_person(self, person: str) -> int:
+        """Release every reservation held by a person and return the count."""
+        previous_count = len(self.items)
+        self.items[:] = [r for r in self.items if r.person_entity != person]
+        return previous_count - len(self.items)
+
+    def release_before(self, on_date: date) -> int:
+        """Expire reservations from earlier days and return the count."""
+        previous_count = len(self.items)
+        self.items[:] = [r for r in self.items if r.reserved_at.date() >= on_date]
+        return previous_count - len(self.items)
+
     def is_reserved_for_other(self, task_id: str, person: str) -> bool:
         """True if another person holds an exclusive reservation of the task."""
         return any(
