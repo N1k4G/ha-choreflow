@@ -129,6 +129,9 @@ def task_payload(
         "importance": instance.importance.value,
         "estimated_duration_minutes": instance.estimated_duration_minutes,
         "due_date": instance.due_date.isoformat() if instance.due_date else None,
+        "snooze_until": (
+            instance.snooze_until.isoformat() if instance.snooze_until else None
+        ),
         "deadline": instance.deadline.isoformat() if instance.deadline else None,
         "status": instance.status.value,
         "source": instance.source.value,
