@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -40,6 +41,13 @@ _FULL_DATA: dict[str, Any] = {
 def _register_prereqs(hass: HomeAssistant) -> None:
     hass.states.async_set(_PERSON, "home")
     hass.services.async_register("notify", "mobile_app_niklas", lambda call: None)
+
+
+def _disable_runtime_todo_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep config-schema tests isolated from entry runtime synchronization."""
+    monkeypatch.setattr(
+        "custom_components.choreflow._register_todo_sync", lambda *_args: None
+    )
 
 
 async def _drive_to_create(hass: HomeAssistant, flow_id: str) -> dict[str, Any]:
@@ -199,8 +207,11 @@ async def test_full_config_flow(
 
 
 async def test_initial_flow_validates_and_persists_assigned_import_person(
-    hass: HomeAssistant, enable_custom_integrations: None
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _disable_runtime_todo_sync(monkeypatch)
     _register_prereqs(hass)
     result = await _drive_initial_to_todo(hass)
     assert result["step_id"] == "todo"
@@ -235,9 +246,7 @@ async def test_initial_flow_validates_and_persists_assigned_import_person(
     assert defaults["assignment_mode"] == "assigned"
     assert defaults["assignment_person"] == _PERSON
 
-    # Creating the entry starts an initial to-do sync as a background task.
-    # Drain it explicitly before teardown so the test does not leak the task.
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(result["result"].entry_id)
     await hass.async_block_till_done()
 
@@ -380,8 +389,11 @@ async def test_options_flow_updates_schedule(
 
 
 async def test_options_flow_validates_and_persists_assigned_import_person(
-    hass: HomeAssistant, enable_custom_integrations: None
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _disable_runtime_todo_sync(monkeypatch)
     _register_prereqs(hass)
     entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
     entry.add_to_hass(hass)
@@ -417,14 +429,17 @@ async def test_options_flow_validates_and_persists_assigned_import_person(
     assert defaults["assignment_mode"] == "assigned"
     assert defaults["assignment_person"] == _PERSON
 
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
 
 async def test_options_flow_random_clears_stale_assignment_person(
-    hass: HomeAssistant, enable_custom_integrations: None
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _disable_runtime_todo_sync(monkeypatch)
     _register_prereqs(hass)
     entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
     entry.add_to_hass(hass)
@@ -445,7 +460,7 @@ async def test_options_flow_random_clears_stale_assignment_person(
     assert defaults["assignment_mode"] == "random"
     assert defaults["assignment_person"] is None
 
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 

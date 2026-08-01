@@ -285,10 +285,7 @@ def _register_todo_sync(
 
     def _start_todo_sync(_hass: HomeAssistant) -> None:
         entry.async_create_background_task(
-            hass,
-            todo_sync.async_sync(),
-            name="choreflow_initial_todo_sync",
-            eager_start=False,
+            hass, todo_sync.async_sync(), name="choreflow_initial_todo_sync"
         )
 
     cancel = ha_start.async_at_started(hass, _start_todo_sync)
