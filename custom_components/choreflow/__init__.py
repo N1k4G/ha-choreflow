@@ -9,6 +9,7 @@ and day-end timers, and the notification-action back channel (§5.3/§5.4).
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -21,6 +22,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import start as ha_start
 from homeassistant.helpers.event import (
     EventStateChangedData,
+    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
 )
@@ -51,6 +53,42 @@ from .store import ChoreFlowStore, LogStore
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+_TODO_SYNC_DEBOUNCE_SECONDS = 3.0
+
+
+class _TodoSyncDebouncer:
+    """Collapse state-change bursts and self-triggered writes into one sync."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        function: Callable[[], Awaitable[None]],
+    ) -> None:
+        self._hass = hass
+        self._function = function
+        self._cancel: Callable[[], None] | None = None
+
+    @callback
+    def async_schedule(self) -> None:
+        """Restart the trailing debounce timer."""
+        if self._cancel is not None:
+            self._cancel()
+        self._cancel = async_call_later(
+            self._hass,
+            _TODO_SYNC_DEBOUNCE_SECONDS,
+            self._async_run,
+        )
+
+    async def _async_run(self, _now: object) -> None:
+        self._cancel = None
+        await self._function()
+
+    @callback
+    def async_cancel(self) -> None:
+        """Cancel a pending trailing sync during unload."""
+        if self._cancel is not None:
+            self._cancel()
+            self._cancel = None
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -221,10 +259,12 @@ def _register_todo_sync(
     coordinator.add_task_created_listener(todo_sync.async_on_task_created)
     coordinator.add_task_reopened_listener(todo_sync.async_on_task_reopened)
     coordinator.add_task_deleted_listener(todo_sync.async_on_task_deleted)
+    debouncer = _TodoSyncDebouncer(hass, todo_sync.async_sync)
+    entry.async_on_unload(debouncer.async_cancel)
 
     @callback
     def _on_todo_change(event: Event[EventStateChangedData]) -> None:
-        hass.async_create_task(todo_sync.async_sync())
+        debouncer.async_schedule()
 
     entry.async_on_unload(
         async_track_state_change_event(hass, [todo_sync.entity_id], _on_todo_change)

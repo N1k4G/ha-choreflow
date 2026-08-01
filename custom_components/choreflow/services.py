@@ -7,7 +7,9 @@ added with their features in P4/P5/P6.
 
 from __future__ import annotations
 
+import logging
 import os
+from datetime import date, timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -57,6 +59,8 @@ from .seed_tasks import build_seed_rules
 from .sources.calendar_source import CalendarSource
 from .sources.todo_sync import TodoSync
 from .store import LogStore
+
+_LOGGER = logging.getLogger(__name__)
 
 _IMPORTANCE = vol.In(["high", "normal", "low"])
 _VISIBILITY = vol.In(["all_enabled_persons", "selected_persons"])
@@ -297,13 +301,10 @@ async def _export_to_calendar(
     custom integration that supports writing events. Failures are logged but do
     not abort the task creation so the user isn't blocked.
     """
-    import logging as _logging
-
-    _log = _logging.getLogger(__name__)
     due: Any = fields.get("due_date")
     if due is None:
         return
-    due_str = due.isoformat() if hasattr(due, "isoformat") else str(due)
+    due_date = due if isinstance(due, date) else date.fromisoformat(str(due))
     summary = fields.get("title", "ChoreFlow-Aufgabe")
     description = fields.get("description") or ""
     if not description:
@@ -320,14 +321,14 @@ async def _export_to_calendar(
             {
                 "entity_id": calendar_entity_id,
                 "summary": summary,
-                "start_date": due_str,
-                "end_date": due_str,
+                "start_date": due_date.isoformat(),
+                "end_date": (due_date + timedelta(days=1)).isoformat(),
                 "description": f"[ChoreFlow {task_id}] {description}".strip(),
             },
             blocking=True,
         )
     except Exception:  # noqa: BLE001 — calendar failures must not block the task
-        _log.warning(
+        _LOGGER.exception(
             "ChoreFlow: calendar export to %s failed for task %s",
             calendar_entity_id,
             task_id,

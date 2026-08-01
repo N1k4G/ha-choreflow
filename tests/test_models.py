@@ -96,7 +96,7 @@ def test_task_instance_round_trip_with_external_refs() -> None:
         assignment_mode=AssignmentMode.RANDOM,
         assignment_person=None,
         external_refs=ExternalRefs(
-            todo=TodoRef(entity_id="todo.haushalt", item_uid="abc123"),
+            todo=TodoRef(entity_id="todo.haushalt", item_uid="abc123", dismissed=True),
             calendar=CalendarRef(
                 entity_id="calendar.abfuhr",
                 event_uid="evt-9",
@@ -116,6 +116,14 @@ def test_task_instance_round_trip_with_external_refs() -> None:
         restored.external_refs.calendar.dedup_key
         == "calendar.abfuhr|evt-9|take_out_residual_waste"
     )
+    assert restored.external_refs.todo is not None
+    assert restored.external_refs.todo.dismissed is True
+
+
+def test_legacy_todo_ref_defaults_to_not_dismissed() -> None:
+    restored = TodoRef.from_dict({"entity_id": "todo.haushalt", "item_uid": "abc123"})
+
+    assert restored.dismissed is False
 
 
 def test_task_instance_round_trip_minimal_open() -> None:

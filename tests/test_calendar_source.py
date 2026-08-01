@@ -116,6 +116,80 @@ async def test_non_matching_event_ignored_and_dedup(hass: HomeAssistant) -> None
     assert tasks[0].title == "Restmüll"
 
 
+async def test_recurring_uid_creates_one_task_per_occurrence(
+    hass: HomeAssistant,
+) -> None:
+    _coord, store, calendar, events = await _build(hass)
+    events.extend(
+        [
+            {
+                "uid": "weekly-waste",
+                "start": "2026-06-20",
+                "end": "2026-06-21",
+                "summary": "Restmüll",
+            },
+            {
+                "uid": "weekly-waste",
+                "start": "2026-06-27",
+                "end": "2026-06-28",
+                "summary": "Restmüll",
+            },
+        ]
+    )
+
+    await calendar.async_sync()
+    await hass.async_block_till_done()
+
+    tasks = _calendar_tasks(store)
+    assert {task.due_date for task in tasks} == {
+        date(2026, 6, 19),
+        date(2026, 6, 26),
+    }
+    assert {task.external_refs.calendar.event_uid for task in tasks} == {
+        "weekly-waste@2026-06-20",
+        "weekly-waste@2026-06-27",
+    }
+
+
+async def test_completed_occurrence_does_not_suppress_later_occurrence(
+    hass: HomeAssistant,
+) -> None:
+    coordinator, store, calendar, events = await _build(hass)
+    events.append(
+        {
+            "uid": "weekly-waste",
+            "start": "2026-06-20",
+            "end": "2026-06-21",
+            "summary": "Restmüll",
+        }
+    )
+    await calendar.async_sync()
+    first = _calendar_tasks(store)[0]
+    await coordinator.async_complete_from_external(first.id, "calendar_test")
+
+    events.append(
+        {
+            "uid": "weekly-waste",
+            "start": "2026-06-27",
+            "end": "2026-06-28",
+            "summary": "Restmüll",
+        }
+    )
+    await calendar.async_sync()
+    await hass.async_block_till_done()
+
+    tasks = _calendar_tasks(store)
+    assert len(tasks) == 2
+    assert {task.status for task in tasks} == {
+        TaskStatus.COMPLETED,
+        TaskStatus.OPEN,
+    }
+    assert {task.due_date for task in tasks} == {
+        date(2026, 6, 19),
+        date(2026, 6, 26),
+    }
+
+
 async def test_timed_event_ignored(hass: HomeAssistant) -> None:
     _coord, store, calendar, events = await _build(hass)
     events.append(
@@ -146,7 +220,7 @@ async def test_changed_event_updates_task(hass: HomeAssistant) -> None:
 
     tasks = _calendar_tasks(store)
     assert len(tasks) == 1
-    assert tasks[0].id == task_id  # same instance (stable uid)
+    assert tasks[0].id != task_id  # occurrence-specific identity follows the new date
     assert tasks[0].due_date == date(2026, 6, 24)
 
 

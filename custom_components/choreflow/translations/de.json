@@ -47,7 +47,8 @@
           "room": "Standardraum für importierte Aufgaben",
           "category": "Standardkategorie für importierte Aufgaben",
           "importance": "Standardwichtigkeit für importierte Aufgaben",
-          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben"
+          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben",
+          "assignment_person": "Zuständige Person für importierte Aufgaben"
         }
       },
       "calendar": {
@@ -63,7 +64,9 @@
     },
     "error": {
       "no_persons": "Wähle mindestens eine Person aus.",
-      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein."
+      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein.",
+      "import_assignment_person_required": "Wähle eine Person für fest zugewiesene To-do-Importe aus.",
+      "import_assignment_person_not_enabled": "Die zuständige Person für Importe muss aktiviert sein."
     },
     "abort": {
       "single_instance_allowed": "ChoreFlow ist bereits eingerichtet. Es wird nur eine Instanz unterstützt."
@@ -110,7 +113,8 @@
           "room": "Standardraum für importierte Aufgaben",
           "category": "Standardkategorie für importierte Aufgaben",
           "importance": "Standardwichtigkeit für importierte Aufgaben",
-          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben"
+          "assignment_mode": "Standardzuständigkeit für importierte Aufgaben",
+          "assignment_person": "Zuständige Person für importierte Aufgaben"
         }
       },
       "calendar": {
@@ -126,7 +130,9 @@
     },
     "error": {
       "no_persons": "Wähle mindestens eine Person aus.",
-      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein."
+      "notify_not_found": "Gib eine gültige Dienst-ID wie notify.mobile_app_telefon ein.",
+      "import_assignment_person_required": "Wähle eine Person für fest zugewiesene To-do-Importe aus.",
+      "import_assignment_person_not_enabled": "Die zuständige Person für Importe muss aktiviert sein."
     }
   },
   "entity": {

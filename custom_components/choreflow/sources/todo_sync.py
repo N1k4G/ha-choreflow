@@ -24,6 +24,7 @@ from homeassistant.helpers import issue_registry as ir
 from ..const import (
     COMPLETION_SOURCE_TODO,
     CONF_IMPORT_ASSIGNMENT_MODE,
+    CONF_IMPORT_ASSIGNMENT_PERSON,
     CONF_IMPORT_CATEGORY,
     CONF_IMPORT_IMPORTANCE,
     CONF_IMPORT_ROOM,
@@ -88,9 +89,31 @@ class TodoSync:
         self._importance = Importance(
             defaults.get(CONF_IMPORT_IMPORTANCE, DEFAULT_IMPORT_IMPORTANCE)
         )
-        self._assignment = AssignmentMode(
-            defaults.get(CONF_IMPORT_ASSIGNMENT_MODE, DEFAULT_IMPORT_ASSIGNMENT_MODE)
+        try:
+            assignment = AssignmentMode(
+                defaults.get(
+                    CONF_IMPORT_ASSIGNMENT_MODE, DEFAULT_IMPORT_ASSIGNMENT_MODE
+                )
+            )
+        except ValueError:
+            assignment = AssignmentMode.RANDOM
+        assignment_person = defaults.get(CONF_IMPORT_ASSIGNMENT_PERSON)
+        # Legacy configurations could select assigned without storing a person.
+        # Degrade them to random so imported tasks remain selectable.
+        if assignment == AssignmentMode.ASSIGNED and (
+            not assignment_person or assignment_person not in settings.enabled_persons
+        ):
+            _LOGGER.warning(
+                "Invalid assigned to-do import default; falling back to random"
+            )
+            assignment = AssignmentMode.RANDOM
+            assignment_person = None
+        self._assignment = assignment
+        self._assignment_person: str | None = (
+            assignment_person if assignment == AssignmentMode.ASSIGNED else None
         )
+        self._sync_lock = asyncio.Lock()
+        self._sync_requested = False
         # Serialises exports so a state-change-triggered re-sync cannot race the
         # add-then-link window in ``_export_task`` and create duplicate items.
         self._export_lock = asyncio.Lock()
@@ -134,7 +157,19 @@ class TodoSync:
 
     # -- full reconcile (§16.3/§16.4) --------------------------------------
     async def async_sync(self) -> None:
-        """Import new items and pull to-do completions into ChoreFlow."""
+        """Coalesce overlapping requests into one run plus one trailing run."""
+        if self._sync_lock.locked():
+            self._sync_requested = True
+            return
+        async with self._sync_lock:
+            while True:
+                self._sync_requested = False
+                await self._async_sync_once()
+                if not self._sync_requested:
+                    return
+
+    async def _async_sync_once(self) -> None:
+        """Import new items and reconcile completion/deletion once."""
         if not self.active:
             return
         assert self.entity_id is not None
@@ -152,8 +187,20 @@ class TodoSync:
             for uid, inst in mapped.items():
                 if inst.status != TaskStatus.OPEN:
                     continue
+                ref = self._todo_ref(inst)
+                if ref is None or ref.dismissed:
+                    continue
                 item = by_uid.get(uid)
-                if item is None or item.get("status") == _STATUS_COMPLETED:
+                if item is None:
+                    if inst.source == TaskSource.TODO_SYNC:
+                        await self.coordinator.async_delete_from_external(
+                            inst.id, COMPLETION_SOURCE_TODO
+                        )
+                    else:
+                        ref.dismissed = True
+                        self.coordinator.store.async_schedule_save()
+                    continue
+                if item.get("status") == _STATUS_COMPLETED:
                     await self.coordinator.async_complete_from_external(
                         inst.id, COMPLETION_SOURCE_TODO
                     )
@@ -181,17 +228,24 @@ class TodoSync:
     # -- helpers -----------------------------------------------------------
     def _linked_uid(self, inst: TaskInstance) -> str | None:
         """Return the to-do uid this task is linked to on our entity, if any."""
+        ref = self._todo_ref(inst)
+        if ref is None or ref.dismissed:
+            return None
+        return ref.item_uid
+
+    def _todo_ref(self, inst: TaskInstance) -> TodoRef | None:
+        """Return this entity's persisted to-do reference, including dismissals."""
         refs = inst.external_refs
         if refs is None or refs.todo is None or refs.todo.entity_id != self.entity_id:
             return None
-        return refs.todo.item_uid
+        return refs.todo
 
     def _should_export(self, inst: TaskInstance) -> bool:
         """True when an open ChoreFlow task should be pushed to the to-do list."""
         if inst.status != TaskStatus.OPEN:
             return False
-        if self._linked_uid(inst) is not None:
-            return False  # already mirrored to this entity
+        if self._todo_ref(inst) is not None:
+            return False  # already mirrored or explicitly dismissed
         today = self.coordinator.clock.today()
         return inst.due_date is None or inst.due_date <= today
 
@@ -270,7 +324,7 @@ class TodoSync:
             visibility_mode=VisibilityMode.ALL_ENABLED_PERSONS,
             visibility_persons=[],
             assignment_mode=self._assignment,
-            assignment_person=None,
+            assignment_person=self._assignment_person,
             external_refs=ExternalRefs(
                 todo=TodoRef(entity_id=self.entity_id, item_uid=uid)
             ),

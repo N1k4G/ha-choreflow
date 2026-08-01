@@ -95,6 +95,82 @@ async def _drive_schedule_to_create(
     )
 
 
+def _todo_input(
+    assignment_mode: str, assignment_person: str | None = None
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "enabled": True,
+        "entity_id": "todo.household",
+        "import_new_items": True,
+        "sync_completion_from_todo": True,
+        "sync_completion_to_todo": True,
+        "room": "General",
+        "category": "General",
+        "importance": "normal",
+        "assignment_mode": assignment_mode,
+    }
+    if assignment_person is not None:
+        result["assignment_person"] = assignment_person
+    return result
+
+
+async def _drive_initial_to_todo(hass: HomeAssistant) -> dict[str, Any]:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Home"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"enabled_persons": [_PERSON]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "notify_service": _NOTIFY,
+            "presence_required": True,
+            "weekday_push_enabled": True,
+            "weekend_push_enabled": True,
+        },
+    )
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "weekday_start_time": "17:30:00",
+            "weekend_start_time": "10:00:00",
+            "day_end_time": "20:00:00",
+            "max_tasks_per_person_per_day": 5,
+        },
+    )
+
+
+async def _drive_options_to_todo(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> dict[str, Any]:
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled_persons": [_PERSON]}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "notify_service": _NOTIFY,
+            "presence_required": True,
+            "weekday_push_enabled": True,
+            "weekend_push_enabled": True,
+        },
+    )
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "weekday_start_time": "17:30:00",
+            "weekend_start_time": "10:00:00",
+            "day_end_time": "20:00:00",
+            "max_tasks_per_person_per_day": 5,
+        },
+    )
+
+
 async def test_full_config_flow(
     hass: HomeAssistant, enable_custom_integrations: None
 ) -> None:
@@ -120,6 +196,44 @@ async def test_full_config_flow(
     assert data["max_tasks_per_person_per_day"] == 5
     assert data["todo_sync"]["enabled"] is False
     assert data["calendar_sources"] == []
+
+
+async def test_initial_flow_validates_and_persists_assigned_import_person(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _register_prereqs(hass)
+    result = await _drive_initial_to_todo(hass)
+    assert result["step_id"] == "todo"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _todo_input("assigned")
+    )
+    assert result["step_id"] == "todo"
+    assert result["errors"] == {
+        "assignment_person": "import_assignment_person_required"
+    }
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _todo_input("assigned", "person.partner")
+    )
+    assert result["step_id"] == "todo"
+    assert result["errors"] == {
+        "assignment_person": "import_assignment_person_not_enabled"
+    }
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _todo_input("assigned", _PERSON)
+    )
+    assert result["step_id"] == "calendar"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"enabled": False, "summary_contains": "", "due_offset_days": -1},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    defaults = result["data"]["todo_sync"]["import_defaults"]
+    assert defaults["assignment_mode"] == "assigned"
+    assert defaults["assignment_person"] == _PERSON
 
 
 async def test_persons_step_requires_a_person(
@@ -254,6 +368,77 @@ async def test_options_flow_updates_schedule(
     # Saving options triggers a reload; let it finish so the reloaded
     # coordinator's refresh-interval timer is cancelled cleanly at teardown
     # (otherwise it lingers past the test).
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_options_flow_validates_and_persists_assigned_import_person(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _register_prereqs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await _drive_options_to_todo(hass, entry)
+    assert result["step_id"] == "todo"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _todo_input("assigned")
+    )
+    assert result["errors"] == {
+        "assignment_person": "import_assignment_person_required"
+    }
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _todo_input("assigned", "person.partner")
+    )
+    assert result["errors"] == {
+        "assignment_person": "import_assignment_person_not_enabled"
+    }
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _todo_input("assigned", _PERSON)
+    )
+    assert result["step_id"] == "calendar"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"enabled": False, "summary_contains": "", "due_offset_days": -1},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    defaults = entry.options["todo_sync"]["import_defaults"]
+    assert defaults["assignment_mode"] == "assigned"
+    assert defaults["assignment_person"] == _PERSON
+
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_options_flow_random_clears_stale_assignment_person(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _register_prereqs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await _drive_options_to_todo(hass, entry)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _todo_input("random", _PERSON)
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"enabled": False, "summary_contains": "", "due_offset_days": -1},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    defaults = entry.options["todo_sync"]["import_defaults"]
+    assert defaults["assignment_mode"] == "random"
+    assert defaults["assignment_person"] is None
+
     await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

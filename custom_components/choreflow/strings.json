@@ -47,7 +47,8 @@
           "room": "Default room for imported tasks",
           "category": "Default category for imported tasks",
           "importance": "Default importance for imported tasks",
-          "assignment_mode": "Default assignment for imported tasks"
+          "assignment_mode": "Default assignment for imported tasks",
+          "assignment_person": "Person assigned to imported tasks"
         }
       },
       "calendar": {
@@ -63,7 +64,9 @@
     },
     "error": {
       "no_persons": "Select at least one person.",
-      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone."
+      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone.",
+      "import_assignment_person_required": "Select a person for assigned to-do imports.",
+      "import_assignment_person_not_enabled": "The import assignment person must be one of the enabled persons."
     },
     "abort": {
       "single_instance_allowed": "ChoreFlow is already configured. Only one instance is supported."
@@ -110,7 +113,8 @@
           "room": "Default room for imported tasks",
           "category": "Default category for imported tasks",
           "importance": "Default importance for imported tasks",
-          "assignment_mode": "Default assignment for imported tasks"
+          "assignment_mode": "Default assignment for imported tasks",
+          "assignment_person": "Person assigned to imported tasks"
         }
       },
       "calendar": {
@@ -126,7 +130,9 @@
     },
     "error": {
       "no_persons": "Select at least one person.",
-      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone."
+      "notify_not_found": "Enter a valid notify service id such as notify.mobile_app_phone.",
+      "import_assignment_person_required": "Select a person for assigned to-do imports.",
+      "import_assignment_person_not_enabled": "The import assignment person must be one of the enabled persons."
     }
   },
   "entity": {

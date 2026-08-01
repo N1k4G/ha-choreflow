@@ -116,6 +116,45 @@ async def test_create_and_complete_task_services(
     assert store.task_instances[task_id].estimated_duration_minutes == 8
 
 
+async def test_create_task_exports_one_day_all_day_calendar_event(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    _prereqs(hass)
+    await _setup(hass)
+    calendar_calls: list[dict] = []
+    hass.services.async_register(
+        "calendar",
+        "create_event",
+        lambda call: calendar_calls.append(dict(call.data)),
+    )
+    due = date(2026, 6, 20)
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CREATE_TASK,
+        {
+            "title": "Take bins out",
+            "room": "Outside",
+            "category": "Waste",
+            "due_date": due,
+            "calendar_export_entity_id": "calendar.household",
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response is not None
+    assert calendar_calls == [
+        {
+            "entity_id": "calendar.household",
+            "summary": "Take bins out",
+            "start_date": "2026-06-20",
+            "end_date": "2026-06-21",
+            "description": f"[ChoreFlow {response['task_id']}] Outside · Waste",
+        }
+    ]
+
+
 async def test_update_task_clears_nullable_fields(
     hass: HomeAssistant, enable_custom_integrations: None
 ) -> None:

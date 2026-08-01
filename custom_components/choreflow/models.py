@@ -84,13 +84,22 @@ def _dt_from_iso(value: str | None) -> datetime | None:
 class TodoRef:
     entity_id: str
     item_uid: str
+    dismissed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"entity_id": self.entity_id, "item_uid": self.item_uid}
+        return {
+            "entity_id": self.entity_id,
+            "item_uid": self.item_uid,
+            "dismissed": self.dismissed,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TodoRef:
-        return cls(entity_id=data["entity_id"], item_uid=data["item_uid"])
+        return cls(
+            entity_id=data["entity_id"],
+            item_uid=data["item_uid"],
+            dismissed=data.get("dismissed", False),
+        )
 
 
 @dataclass
