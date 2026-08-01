@@ -88,8 +88,8 @@ DEFAULT_PRESENCE_REQUIRED: Final = True
 DEFAULT_WEEKDAY_PUSH_ENABLED: Final = True
 DEFAULT_WEEKEND_PUSH_ENABLED: Final = True
 
-DEFAULT_IMPORT_ROOM: Final = "Allgemein"
-DEFAULT_IMPORT_CATEGORY: Final = "Allgemein"
+DEFAULT_IMPORT_ROOM: Final = "General"
+DEFAULT_IMPORT_CATEGORY: Final = "General"
 DEFAULT_IMPORT_IMPORTANCE: Final = "normal"
 DEFAULT_IMPORT_ASSIGNMENT_MODE: Final = "random"
 
@@ -98,8 +98,8 @@ DEFAULT_CALENDAR_DUE_OFFSET_DAYS: Final = -1
 # Look-ahead window when reading calendar events (§7).
 DEFAULT_CALENDAR_PREVIEW_DAYS: Final = 14
 # Defaults for calendar-generated tasks (config flow captures only the match).
-DEFAULT_CALENDAR_ROOM: Final = "Außenbereich"
-DEFAULT_CALENDAR_CATEGORY: Final = "Müll"
+DEFAULT_CALENDAR_ROOM: Final = "Outside"
+DEFAULT_CALENDAR_CATEGORY: Final = "Waste"
 # Daily calendar reconcile time (§7 — once per day, early).
 CALENDAR_RECONCILE_HOUR: Final = 3
 CALENDAR_RECONCILE_MINUTE: Final = 30

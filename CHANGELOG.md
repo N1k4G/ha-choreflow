@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow assigned to-do imports to target a configured enabled person, validate
   the selection in config and options flows, and safely flag invalid legacy
   configuration. (#19)
+- Localize push notification labels/messages and the complete dashboard card
+  and editor for German and English, use the Home Assistant locale for date and
+  time formatting, and replace German-only task defaults with neutral English
+  values. (#13)
 
 ## [1.1.2] - 2026-07-31
 

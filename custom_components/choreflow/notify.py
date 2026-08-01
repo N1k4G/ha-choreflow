@@ -25,10 +25,24 @@ from .models import Importance, TaskInstance
 
 _LOGGER = logging.getLogger(__name__)
 
-# Action button labels (German UI per the spec example §5.4).
-_LABEL_DONE = "Erledigt"
-_LABEL_SNOOZE = "Später erinnern"
-_LABEL_DASHBOARD = "Dashboard öffnen"
+_NOTIFICATION_TEXT: dict[str, dict[str, str]] = {
+    "de": {
+        "done": "Erledigt",
+        "snooze": "Später erinnern",
+        "dashboard": "Dashboard öffnen",
+        "overdue": "Überfällig",
+        "due_today": "Heute fällig",
+        "important": "Wichtig",
+    },
+    "en": {
+        "done": "Done",
+        "snooze": "Remind later",
+        "dashboard": "Open dashboard",
+        "overdue": "Overdue",
+        "due_today": "Due today",
+        "important": "Important",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -60,16 +74,24 @@ def parse_action_id(action: str) -> NotificationAction | None:
     return NotificationAction(kind=kind, task_id=task_id, person_slug=person_slug)
 
 
-def _message_for(task: TaskInstance, today_iso: str) -> str:
+def _text_for(hass: HomeAssistant) -> dict[str, str]:
+    """Return notification text for the HA language, falling back to English."""
+    language = hass.config.language.lower().replace("_", "-").split("-", 1)[0]
+    return _NOTIFICATION_TEXT.get(language, _NOTIFICATION_TEXT["en"])
+
+
+def _message_for(
+    task: TaskInstance, today_iso: str, text: dict[str, str]
+) -> str:
     parts: list[str] = []
     if task.due_date is not None:
         due_iso = task.due_date.isoformat()
         if due_iso < today_iso:
-            parts.append("Überfällig")
+            parts.append(text["overdue"])
         elif due_iso == today_iso:
-            parts.append("Heute fällig")
+            parts.append(text["due_today"])
     if task.importance == Importance.HIGH:
-        parts.append("Wichtig")
+        parts.append(text["important"])
     return " · ".join(parts) if parts else task.category
 
 
@@ -90,24 +112,25 @@ async def async_send_task_push(
         _LOGGER.error("Notify service %s is unavailable", notify_service)
         return False
 
+    text = _text_for(hass)
     actions = [
         {
             "action": build_action_id(ACTION_PREFIX_DONE, task.id, person_slug),
-            "title": _LABEL_DONE,
+            "title": text["done"],
         },
         {
             "action": build_action_id(ACTION_PREFIX_SNOOZE, task.id, person_slug),
-            "title": _LABEL_SNOOZE,
+            "title": text["snooze"],
         },
         {
             "action": ACTION_OPEN_DASHBOARD,
-            "title": _LABEL_DASHBOARD,
+            "title": text["dashboard"],
             "uri": DASHBOARD_URI,
         },
     ]
     service_data = {
         "title": f"{task.room}: {task.title}",
-        "message": _message_for(task, today_iso),
+        "message": _message_for(task, today_iso, text),
         "data": {
             "tag": NOTIFICATION_TAG_TEMPLATE.format(task_id=task.id),
             "actions": actions,
