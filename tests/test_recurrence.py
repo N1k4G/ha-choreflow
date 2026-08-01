@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
+
 from custom_components.choreflow.engine.recurrence import (
+    RecurrenceIndex,
     due_instances_for,
     instance_id_for,
 )
@@ -50,6 +53,23 @@ def test_every_n_days_anchor_moves_to_last_completion() -> None:
     )
     assert _ids([rule], date(2026, 6, 18), [completed]) == []
     assert _ids([rule], date(2026, 6, 19), [completed]) == ["inst_2026_06_19_r"]
+
+
+def test_overdue_completion_starts_a_fresh_interval() -> None:
+    completion_date = _NOW.date()
+    rule = make_rule("r", recurrence_interval=3, created_date=_MON)
+    completed = make_instance(
+        "overdue",
+        rule_id=rule.id,
+        due_date=_MON,
+        status=TaskStatus.COMPLETED,
+        completed_at=_NOW,
+    )
+
+    assert _ids([rule], completion_date, [completed]) == []
+    assert _ids([rule], completion_date + timedelta(days=3), [completed]) == [
+        "inst_2026_06_21_r"
+    ]
 
 
 def test_durable_anchor_survives_completed_instance_pruning() -> None:
@@ -135,3 +155,17 @@ def test_generated_instance_fields() -> None:
     assert inst.source == TaskSource.RULE
     assert inst.estimated_duration_minutes == 5
     assert inst.created_at == _NOW
+
+
+def test_existing_instances_and_index_are_mutually_exclusive() -> None:
+    rule = make_rule("r", recurrence_interval=1, created_date=_MON)
+    existing = make_instance("existing", rule_id=rule.id, due_date=_MON)
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        due_instances_for(
+            [rule],
+            _MON,
+            [existing],
+            _NOW,
+            index=RecurrenceIndex(),
+        )

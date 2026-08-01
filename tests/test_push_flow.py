@@ -122,6 +122,27 @@ async def test_start_sends_one_push(hass: HomeAssistant) -> None:
     assert chain.tasks_sent_count == 1
 
 
+async def test_daily_start_batches_person_refreshes(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator, store, calls = await _build(
+        hass, FixedClock(_MON_18), persons=(_PERSON, _PARTNER)
+    )
+    store.task_instances["a"] = make_instance("a", due_date=_TODAY)
+    store.task_instances["b"] = make_instance("b", due_date=_TODAY)
+    refreshes: list[bool] = []
+
+    async def _record_refresh() -> None:
+        refreshes.append(True)
+
+    monkeypatch.setattr(coordinator, "async_refresh", _record_refresh)
+
+    await coordinator.async_start_daily_flow()
+
+    assert len(calls) == 2
+    assert refreshes == [True]
+
+
 async def test_concurrent_advances_for_same_person_send_once(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -192,6 +213,48 @@ async def test_different_persons_advance_concurrently(
     await asyncio.gather(first, second)
 
     assert pushed_slugs == {"niklas", "partner"}
+
+
+async def test_advance_releases_lock_before_reentrant_refresh(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator, store, calls = await _build(hass, FixedClock(_MON_18))
+    store.task_instances["a"] = make_instance("a", due_date=_TODAY)
+    refreshes = 0
+
+    async def _reentrant_refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+        await coordinator.async_advance_chain(_PERSON)
+
+    monkeypatch.setattr(coordinator, "async_refresh", _reentrant_refresh)
+
+    await asyncio.wait_for(coordinator.async_advance_chain(_PERSON), timeout=1)
+
+    assert refreshes == 1
+    assert len(calls) == 1
+    assert store.push_chain_states[_KEY].current_task_id == "a"
+
+
+async def test_waiting_chain_schedules_save_without_refresh(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator, store, _ = await _build(hass, FixedClock(_MON_18))
+    chain = coordinator._get_chain(_PERSON, _TODAY)
+    chain.current_task_id = "waiting"
+    scheduled: list[bool] = []
+    refreshes: list[bool] = []
+    monkeypatch.setattr(store, "async_schedule_save", lambda: scheduled.append(True))
+
+    async def _record_refresh() -> None:
+        refreshes.append(True)
+
+    monkeypatch.setattr(coordinator, "async_refresh", _record_refresh)
+
+    assert await coordinator.async_advance_chain(_PERSON) is False
+
+    assert scheduled == [True]
+    assert refreshes == []
 
 
 async def test_complete_advances_to_next(hass: HomeAssistant) -> None:
@@ -276,6 +339,36 @@ async def test_generation_migrates_legacy_anchor_before_pruning(
     assert [instance.due_date for instance in successors] == [
         completed_at.date() + timedelta(days=182)
     ]
+
+
+async def test_reopening_old_completion_keeps_synthetic_recurrence_anchor(
+    hass: HomeAssistant,
+) -> None:
+    coordinator, store, _ = await _build(hass, FixedClock(_MON_18))
+    rule = make_rule(
+        "changed-recurrence",
+        recurrence_interval=30,
+        created_date=_TODAY - timedelta(days=60),
+    )
+    current = make_instance("current", rule_id=rule.id, due_date=_TODAY)
+    older = make_instance(
+        "older-completion",
+        rule_id=rule.id,
+        due_date=_TODAY - timedelta(days=30),
+        status=TaskStatus.COMPLETED,
+        completed_at=_MON_18 - timedelta(days=30),
+    )
+    store.task_rules[rule.id] = rule
+    store.task_instances[current.id] = current
+    store.task_instances[older.id] = older
+
+    await coordinator.async_update_task(current.id, {"recurrence_interval": 14})
+    assert rule.created_date == _TODAY
+    assert rule.last_completed_date == _TODAY
+
+    await coordinator.async_reopen_task(older.id)
+
+    assert rule.last_completed_date == _TODAY
 
 
 async def test_snooze_normal_ends_chain(hass: HomeAssistant) -> None:

@@ -90,8 +90,15 @@ def due_instances_for(
 
     ``now`` provides ``created_at`` for the generated instances (Clock-driven;
     added to the §4.2 signature because :class:`TaskInstance` requires it).
+    ``existing_instances`` and a pre-built ``index`` are mutually exclusive.
     """
-    context = index or RecurrenceIndex.from_instances(existing_instances)
+    if index is not None and existing_instances:
+        raise ValueError("existing_instances and index are mutually exclusive")
+    context = (
+        index
+        if index is not None
+        else RecurrenceIndex.from_instances(existing_instances)
+    )
     result: list[TaskInstance] = []
     for rule in rules:
         if not rule.enabled:

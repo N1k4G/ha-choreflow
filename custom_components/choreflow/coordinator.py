@@ -310,7 +310,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         return dict(counter)
 
     def _recalculate_rule_completion_anchor(self, rule_id: str) -> None:
-        """Rebuild a rule anchor after a completion is reopened."""
+        """Rebuild a rule anchor without crossing its configured start date."""
         rule = self.store.task_rules.get(rule_id)
         if rule is None:
             return
@@ -321,6 +321,9 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             and instance.status == TaskStatus.COMPLETED
             and instance.completed_at is not None
         ]
+        # A recurrence edit moves created_date forward as a synthetic anchor.
+        if rule.created_date is not None:
+            completion_dates.append(rule.created_date)
         rule.last_completed_date = max(completion_dates, default=None)
 
     async def _persist_and_refresh(self) -> None:
@@ -424,6 +427,9 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         """Bound local state without propagating retention as task deletion."""
         completed_cutoff = today - timedelta(days=_COMPLETED_RETENTION_DAYS)
         deleted_cutoff = today - timedelta(days=_DELETED_RETENTION_DAYS)
+        # Stores written before ``deleted_at`` was introduced have no deletion
+        # timestamp. Their age falls back to completed_at or created_at, so the
+        # first post-upgrade pass may prune a batch of legacy tombstones at once.
         stale_instances = [
             inst_id
             for inst_id, inst in self.store.task_instances.items()
@@ -483,48 +489,67 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
                 continue
             chain = self._get_chain(target, today)
             if self._is_home(target) or not settings.presence_required:
-                await self.async_advance_chain(target)
+                await self.async_advance_chain(target, refresh=False)
             else:
                 chain.pending_catchup = True
         await self._persist_and_refresh()
 
-    async def async_advance_chain(self, person: str) -> None:
+    async def async_advance_chain(
+        self,
+        person: str,
+        *,
+        refresh: bool = True,
+        prior_state_changed: bool = False,
+    ) -> bool:
         """Serialize the full chain transition for one person."""
         lock = self._advance_locks.setdefault(person, asyncio.Lock())
         async with lock:
-            await self._async_advance_chain_locked(person)
-            # Persist even when the locked path exits early: callers such as
-            # snooze and presence may have mutated state before advancing.
-            await self._persist_and_refresh()
+            changed = await self._async_advance_chain_locked(person)
 
-    async def _async_advance_chain_locked(self, person: str) -> None:
+        changed = changed or prior_state_changed
+        # Schedule persistence on every path, including mutation-free guards.
+        self.store.async_schedule_save()
+        if changed and refresh:
+            await self.async_refresh()
+        return changed
+
+    async def _async_advance_chain_locked(self, person: str) -> bool:
         """Pick, reserve and push the next task for a person (§5.2)."""
         settings = self.settings.person_settings.get(person)
         if settings is None:
-            return
+            return False
         now = self.clock.now()
         today = self.clock.today()
+        key = f"{person}|{today.isoformat()}"
+        changed = key not in self.store.push_chain_states
         chain = self._get_chain(person, today)
 
         if not scheduler.is_within_window(now, self.settings.schedule):
-            return
+            return changed
         if settings.presence_required and not self._is_home(person):
+            changed = changed or chain.active
             chain.active = False
-            return
+            return changed
         if chain.tasks_sent_count >= self.settings.max_tasks_per_person_per_day:
+            changed = changed or chain.active or chain.ended_reason != "limit"
             chain.active = False
             chain.ended_reason = "limit"
-            return
+            return changed
         if chain.current_task_id is not None:
-            return  # waiting for the current task's action
+            return changed  # waiting for the current task's action
         if not chain.started and not self._push_enabled(settings, today):
-            return
+            return changed
         if self.settings.skip_push_after_daily_completion and self._completed_today(
             person, today
         ):
+            changed = (
+                changed
+                or chain.active
+                or chain.ended_reason != "daily_completion_reached"
+            )
             chain.active = False
             chain.ended_reason = "daily_completion_reached"
-            return
+            return changed
 
         open_instances = [
             i for i in self.store.task_instances.values() if i.status == TaskStatus.OPEN
@@ -532,7 +557,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         recent = self._recent_push_counts(today)
         pool = build_urgency_pool(open_instances, today, recent)
         book = self._book
-        book.release_before(today)
+        changed = bool(book.release_before(today)) or changed
         ctx = PersonContext(
             person_entity=person,
             excluded_task_ids=book.excluded_task_ids_for(person),
@@ -549,9 +574,10 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             reason = "follow-up: room bundling / rotation"
 
         if task is None:
+            changed = changed or chain.active or chain.ended_reason != "no_tasks"
             chain.active = False
             chain.ended_reason = "no_tasks"
-            return
+            return changed
 
         exclusive = not allows_parallel(task, today)
         book.reserve(task.id, person, now, exclusive=exclusive)
@@ -565,9 +591,10 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         )
         if not sent:
             book.release_for_person(task.id, person)
+            changed = changed or chain.active or chain.ended_reason != "no_notify"
             chain.active = False
             chain.ended_reason = "no_notify"
-            return
+            return changed
 
         chain.active = True
         chain.started = True
@@ -585,6 +612,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         await self._async_log_event(
             EVENT_TASK_NOTIFIED, task=task, person=person, decision_reason=reason
         )
+        return True
 
     async def async_send_next_task(self, person: str) -> None:
         """Service entry point: advance the chain for a person."""
@@ -626,7 +654,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         )
         for listener in self._completion_listeners:
             await listener(inst, source)
-        await self.async_advance_chain(person)
+        await self.async_advance_chain(person, prior_state_changed=True)
 
     async def async_reopen_task(self, task_id: str) -> None:
         """Reopen a completed task, correcting the stats log (§Feature 2)."""
@@ -675,7 +703,7 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
             await self._persist_and_refresh()
         else:
             # high tasks may be reminded again within the day → continue
-            await self.async_advance_chain(person)
+            await self.async_advance_chain(person, prior_state_changed=True)
 
     # ------------------------------------------------------------------
     # Task CRUD (dashboard / services)
@@ -971,13 +999,18 @@ class ChoreFlowCoordinator(DataUpdateCoordinator[ChoreFlowData]):
         """React to a person's presence change (§5.3)."""
         if person not in self.settings.person_settings:
             return
-        today = self.clock.today()
-        chain = self._get_chain(person, today)
         if is_home:
             await self.async_advance_chain(person)
         else:
+            today = self.clock.today()
+            key = f"{person}|{today.isoformat()}"
+            changed = key not in self.store.push_chain_states
+            chain = self._get_chain(person, today)
+            changed = changed or chain.active
             chain.active = False
-            await self._persist_and_refresh()
+            self.store.async_schedule_save()
+            if changed:
+                await self.async_refresh()
 
     async def async_handle_notification_action(
         self, kind: str, task_id: str, slug: str
