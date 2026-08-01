@@ -429,7 +429,7 @@ async def test_options_flow_random_clears_stale_assignment_person(
     entry = MockConfigEntry(domain=DOMAIN, data=_FULL_DATA)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done()
     result = await _drive_options_to_todo(hass, entry)
 
     result = await hass.config_entries.options.async_configure(
@@ -445,7 +445,7 @@ async def test_options_flow_random_clears_stale_assignment_person(
     assert defaults["assignment_mode"] == "random"
     assert defaults["assignment_person"] is None
 
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
