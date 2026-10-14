@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.2] - 2026-07-31
 
+Not released separately: these changes first shipped in the v1.2.0 release.
+
 ### Fixed
 - Accept syntactically valid notify service ids before their integrations have
   registered the services, and re-evaluate repair issues when notify services
