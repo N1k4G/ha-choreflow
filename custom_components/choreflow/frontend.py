@@ -100,10 +100,21 @@ async def _sync_lovelace_resource(hass: HomeAssistant, versioned_url: str) -> bo
         # YAML mode — resource registry is read-only.
         return False
 
-    existing = next(
-        (r for r in resources.async_items() if CARD_URL in r.get("url", "")),
-        None,
-    )
+    # During HA startup the storage collection is often not loaded yet, so
+    # async_items() would be empty and a duplicate resource created on every
+    # restart. Load it the same way ResourceStorageCollection.async_get_info does.
+    if not getattr(resources, "loaded", True):
+        await resources.async_load()
+        resources.loaded = True
+
+    matches = [r for r in resources.async_items() if CARD_URL in r.get("url", "")]
+    existing = matches[0] if matches else None
+
+    # Remove duplicates left behind by earlier versions that ran before the
+    # collection was loaded.
+    for duplicate in matches[1:]:
+        await resources.async_delete_item(duplicate["id"])
+        _LOGGER.debug("ChoreFlow duplicate card resource removed: %s", duplicate["url"])
 
     if existing is None:
         await resources.async_create_item(
