@@ -20,7 +20,11 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-      - run: pip install -r requirements_test.txt mypy
+      # Type-check against the minimum supported Home Assistant (hacs.json),
+      # not the newest one: from 2026.10 HA types its schemas as probatio, which
+      # the voluptuous schemas used for older versions do not satisfy. The
+      # 0.13.339 test plugin pins homeassistant==2026.6.3.
+      - run: pip install "pytest-homeassistant-custom-component==0.13.339" mypy
       - run: mypy custom_components/choreflow
 
   card:
