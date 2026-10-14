@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.3] - 2026-10-14
+## [1.2.1] - 2026-10-14
 
 ### Fixed
 - Fix duplicate Lovelace resources after restarts: the card resource is no
   longer added again when Home Assistant has not yet loaded the resource
   registry at startup, and existing duplicates are removed automatically.
+
+## [1.2.0] - 2026-08-01
+
+### Fixed
 - Load the complete paginated task collection in the dashboard card, preserve
   filters and prior results across refreshes, allow nullable fields to be
   cleared, and evaluate snooze dates in the browser's local date. (#21, #22,
